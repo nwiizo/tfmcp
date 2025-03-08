@@ -115,7 +115,7 @@ To use tfmcp with Claude Desktop:
 
 4. Restart Claude Desktop and enable the tfmcp tool.
 
-5. tfmcp will automatically create a sample Terraform project in `~/terraform` if one doesn't exist, ensuring Claude can start working with Terraform right away.
+5. tfmcp will automatically create a sample Terraform project in `~/terraform` if one doesn't exist, ensuring Claude can start working with Terraform right away. The sample project is based on the examples included in the `example/demo` directory of this repository.
 
 ## Logs and Troubleshooting
 

@@ -11,4 +11,4 @@ terraform {
 resource "local_file" "example" {
   content  = "Hello from tfmcp demo mode!"
   filename = "${path.module}/example.txt"
-}
+} 

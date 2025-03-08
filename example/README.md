@@ -59,4 +59,26 @@ Claude Desktopと統合することで、自然言語でTerraformプロジェク
 
 ## 注意事項
 
-このサンプルプロジェクトは教育目的のみを意図しており、実際の本番環境では使用しないでください。 
+このサンプルプロジェクトは教育目的のみを意図しており、実際の本番環境では使用しないでください。
+
+## Directory Structure
+
+This example directory contains various Terraform examples demonstrating different use cases and configuration patterns:
+
+- `/demo` - Minimal demo configuration used by tfmcp in demo mode
+- `/environments` - Environment-specific configurations (dev, staging, prod)
+- `/master` - Main configuration templates
+- `/modules` - Reusable Terraform modules
+- `/config` - Configuration files
+
+## Getting Started
+
+The simplest example is in the `/demo` directory, which creates a single local file:
+
+```bash
+cd demo
+terraform init
+terraform apply
+```
+
+For more advanced usage, explore the other directories based on your needs. 
