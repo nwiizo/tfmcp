@@ -32,7 +32,7 @@ pub fn contract_tilde(path: &Path) -> String {
 
         // Create a path object for comparing to handle different path separators
         let path_buf = PathBuf::from(path_str.as_ref());
-        
+
         // Check if path_buf starts with home directory
         if let Ok(relative) = path_buf.strip_prefix(&home) {
             if relative.as_os_str().is_empty() {
@@ -43,7 +43,7 @@ pub fn contract_tilde(path: &Path) -> String {
                 return format!("~/{}", relative_str);
             }
         }
-        
+
         path_str.into_owned()
     } else {
         path.to_string_lossy().into_owned()
