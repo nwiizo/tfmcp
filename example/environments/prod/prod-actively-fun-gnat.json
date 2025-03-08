@@ -1,0 +1,1 @@
+{"created_at":"2025-03-08T13:46:35Z","metadata":{"created_by":"tfmcp","description":"リソース for prod 環境","version":"1.0.0"},"name":"prod-actively-fun-gnat","tags":{"Environment":"prod","Owner":"nwiizo","Project":"tfmcp-example"}}

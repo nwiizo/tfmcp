@@ -2,7 +2,7 @@
 name = "tfmcp"
 version = "0.1.0"
 edition = "2021"
-authors = ["nwiizo <nwiizo@gmail.com>"]
+authors = ["nwiizo <syu.m.5151@gmail.com>"]
 description = "Terraform Model Context Protocol Tool - A CLI tool to manage Terraform through MCP"
 readme = "README.md"
 repository = "https://github.com/nwiizo/tfmcp"
