@@ -1,0 +1,29 @@
+{
+  "description": "Rules for Terraform files in the project",
+  "include": ["**/*.tf", "**/*.tfvars", "**/*.hcl"],
+  "rules": [
+    "Use Terraform 1.11.1 for this project.",
+    "Follow HCL formatting best practices.",
+    "Document resource blocks with meaningful comments.",
+    "Use variables for reusable values.",
+    "Group related resources together.",
+    "Use modules for reusable components.",
+    "Add descriptions to variables and outputs."
+  ],
+  "commands": {
+    "tfmcp:analyze": {
+      "description": "Run analyze command on terraform project",
+      "command": "cargo run -- analyze -d $1",
+      "args": [
+        {
+          "name": "project_dir",
+          "description": "Terraform project directory",
+          "required": true
+        }
+      ]
+    }
+  },
+  "references": {
+    "files": [".terraform-version"]
+  }
+} 

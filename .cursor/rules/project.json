@@ -1,0 +1,51 @@
+{
+  "description": "Global settings for the tfmcp project",
+  "include": ["**/*"],
+  "rules": [
+    "When working on this project, consider the Terraform Model Context Protocol design principles.",
+    "Always follow the Rust coding style guidelines.",
+    "This project uses Terraform 1.11.1 for compatibility with the latest features."
+  ],
+  "commands": {
+    "tfmcp:release": {
+      "description": "Release a new version of tfmcp",
+      "command": "bash Release.sh $1",
+      "args": [
+        {
+          "name": "version",
+          "description": "Version number (e.g. v0.1.0)",
+          "required": true
+        }
+      ]
+    },
+    "tfmcp:build": {
+      "description": "Build tfmcp",
+      "command": "cargo build --release"
+    },
+    "tfmcp:build:debug": {
+      "description": "Build tfmcp in debug mode",
+      "command": "cargo build"
+    },
+    "tfmcp:test": {
+      "description": "Run tfmcp tests",
+      "command": "cargo test"
+    },
+    "tfmcp:run": {
+      "description": "Run tfmcp MCP server",
+      "command": "cargo run -- mcp",
+      "env": {
+        "TFMCP_LOG_LEVEL": "debug",
+        "TFMCP_DEMO_MODE": "true"
+      }
+    }
+  },
+  "editorSettings": {
+    "tabSize": 4,
+    "insertSpaces": true,
+    "rulers": [100],
+    "formatOnPaste": true,
+    "formatOnType": true,
+    "trimTrailingWhitespace": true,
+    "insertFinalNewline": true
+  }
+} 

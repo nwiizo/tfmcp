@@ -1,0 +1,31 @@
+{
+  "description": "Rules for Rust code files",
+  "include": ["**/*.rs"],
+  "rules": [
+    "Follow the Rust style guide for this project.",
+    "Use Result and Option types for error handling where appropriate.",
+    "Document public functions and methods with rustdoc comments.",
+    "Avoid unnecessary dependencies.",
+    "Leverage Rust's type system for safety guarantees.",
+    "Handle errors gracefully with proper error propagation.",
+    "Use async/await for asynchronous operations."
+  ],
+  "commands": {
+    "tfmcp:lint": {
+      "description": "Run clippy linter",
+      "command": "cargo clippy --all-targets --all-features -- -D warnings"
+    },
+    "tfmcp:check": {
+      "description": "Check code without building",
+      "command": "cargo check"
+    },
+    "tfmcp:format": {
+      "description": "Format code",
+      "command": "cargo fmt"
+    },
+    "tfmcp:docs": {
+      "description": "Generate and open documentation",
+      "command": "cargo doc --open"
+    }
+  }
+} 
