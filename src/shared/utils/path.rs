@@ -26,15 +26,24 @@ pub fn contract_tilde(path: &Path) -> String {
         let home_str = home.to_string_lossy();
         let path_str = path.to_string_lossy();
 
-        if path_str.starts_with(home_str.as_ref()) {
-            let rest = &path_str[home_str.len()..];
+        if path_str == home_str {
+            return "~".to_string();
+        }
 
-            if rest.is_empty() {
+        // Create a path object for comparing to handle different path separators
+        let path_buf = PathBuf::from(path_str.as_ref());
+        
+        // Check if path_buf starts with home directory
+        if let Ok(relative) = path_buf.strip_prefix(&home) {
+            if relative.as_os_str().is_empty() {
                 return "~".to_string();
-            } else if rest.starts_with('/') {
-                return format!("~{}", rest);
+            } else {
+                // Convert to forward slashes for consistency across platforms
+                let relative_str = relative.to_string_lossy().replace('\\', "/");
+                return format!("~/{}", relative_str);
             }
         }
+        
         path_str.into_owned()
     } else {
         path.to_string_lossy().into_owned()
