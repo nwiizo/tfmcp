@@ -1,0 +1,39 @@
+[package]
+name = "tfmcp"
+version = "0.1.0"
+edition = "2021"
+authors = ["nwiizo <nwiizo@gmail.com>"]
+description = "Terraform Model Context Protocol Tool - A CLI tool to manage Terraform through MCP"
+readme = "README.md"
+repository = "https://github.com/nwiizo/tfmcp"
+license = "MIT"
+keywords = ["terraform", "mcp", "llm", "ai", "claude"]
+categories = ["command-line-utilities", "development-tools"]
+build = "build.rs"
+
+[[bin]]
+name = "tfmcp"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5.31", features = ["derive"] }
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.137"
+anyhow = "1.0.75"
+thiserror = "2.0.11"
+futures = "0.3.31"
+tokio = { version = "1.37.0", features = ["full"] }
+async-trait = "0.1.85"
+dirs = "6.0.0"
+tempfile = "3.15.0"
+regex = "1.11.1"
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls",
+] }
+which = "6.0.1"
+chrono = "0.4.35"
+
+[dev-dependencies]
+tempfile = "3.15.0"
+mockall = "0.13.1"
