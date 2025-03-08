@@ -1,0 +1,140 @@
+name: Rust CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-Dwarnings" # 警告をエラーとして扱う
+  RUSTDOCFLAGS: "-Dwarnings"
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1ff72ee08e3cb84d84adba594e0a297990fc1ed3 # stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --locked --all-features --verbose
+
+      - name: Build
+        run: cargo build --locked --all-features --verbose
+
+  test-platform:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [stable]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1ff72ee08e3cb84d84adba594e0a297990fc1ed3 # stable
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: rustfmt, clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@a1502cd9e758c50496cc9ac5308c4843bcd56d36 # v3
+        with:
+          terraform_version: "1.5.7"
+          terraform_wrapper: false
+
+      - name: Test
+        run: cargo test --locked
+
+  security:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1ff72ee08e3cb84d84adba594e0a297990fc1ed3 # stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run security audit
+        run: cargo audit
+
+  coverage:
+    name: Code coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1ff72ee08e3cb84d84adba594e0a297990fc1ed3 # stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@7cc06968f61893aa3fe63233dc11e64a9e8ee82c # v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Generate code coverage
+        run: cargo llvm-cov --lcov --output-path lcov.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@e28ff129e5465c2c0dbc5acd6b8a3db812f7199b # v4
+        with:
+          files: ./lcov.info
+          fail_ci_if_error: false
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [check, test-platform, security]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1ff72ee08e3cb84d84adba594e0a297990fc1ed3 # stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2
+
+      - name: Build release
+        run: cargo build --release --locked
+
+      - name: Create release
+        id: create_release
+        uses: softprops/action-gh-release@4634c16e79c963813287e889244c50009e7f0981 # v1
+        with:
+          files: |
+            target/release/tfmcp
+            LICENSE
+            README.md
+          draft: false
+          prerelease: false 
