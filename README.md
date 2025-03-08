@@ -4,6 +4,12 @@
 
 tfmcp is a command-line tool that helps you interact with Terraform via the Model Context Protocol (MCP). It allows LLMs to manage and operate your Terraform environments, including:
 
+## 🎮 Demo
+
+See tfmcp in action with Claude Desktop:
+
+![tfmcp Demo with Claude Desktop](.github/images/tfmcp-demo.gif)
+
 - Reading Terraform configuration files
 - Analyzing Terraform plan outputs
 - Applying Terraform configurations
