@@ -18,7 +18,7 @@ See tfmcp in action with Claude Desktop:
 
 ## 🎉 Latest Release
 
-The first stable release of tfmcp (v0.1.0) is now available on Crates.io! You can easily install it using Cargo:
+The first stable release of tfmcp (v0.1.1) is now available on Crates.io! You can easily install it using Cargo:
 
 ```bash
 cargo install tfmcp
