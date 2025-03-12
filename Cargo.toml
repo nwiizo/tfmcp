@@ -7,9 +7,10 @@ description = "Terraform Model Context Protocol Tool - A CLI tool to manage Terr
 readme = "README.md"
 repository = "https://github.com/nwiizo/tfmcp"
 license = "MIT"
-keywords = ["terraform", "mcp", "llm", "ai", "claude"]
+keywords = ["terraform", "opentofu", "mcp", "llm", "ai", "claude"]
 categories = ["command-line-utilities", "development-tools"]
 build = "build.rs"
+rust-version = "1.78.0"
 
 [[bin]]
 name = "tfmcp"
