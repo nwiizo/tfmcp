@@ -1,0 +1,35 @@
+# Git
+.git
+.gitignore
+
+# Rust build artifacts
+/target
+
+# Dependencies
+node_modules
+
+# Terraform files
+.terraform
+*.tfstate
+*.tfstate.backup
+*.tfvars
+
+# IDEs and editors
+.vscode
+.idea
+*.swp
+*~
+
+# Log files
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Docker files
+Dockerfile
+.dockerignore
+
+# CI/CD
+.github 
