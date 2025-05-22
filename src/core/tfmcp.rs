@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TfMcpError {
-    #[error("Terraform executable not found")]
+    #[error("Terraform binary not found")]
     TerraformNotFound,
 
     #[error("Invalid Terraform project directory: {0}")]
@@ -151,7 +151,7 @@ impl TfMcp {
             Some(path) => {
                 let path_buf = PathBuf::from(path);
                 if path_buf.is_absolute() {
-                    logging::info(&format!("Using specified Terraform executable: {}", path));
+                    logging::info(&format!("Using specified Terraform binary: {}", path));
                     path_buf
                 } else {
                     // Convert to absolute path
@@ -164,24 +164,33 @@ impl TfMcp {
                 }
             }
             None => {
-                // Try to find terraform in PATH
-                match which::which("terraform") {
+                // Read TERRAFORM_BINARY_NAME env var, fallback to "terraform"
+                let terraform_binary = std::env::var("TERRAFORM_BINARY_NAME")
+                    .unwrap_or_else(|_| "terraform".to_string());
+                match which::which(&terraform_binary) {
                     Ok(path) => {
-                        logging::info(&format!("Found Terraform in PATH: {}", path.display()));
+                        logging::info(&format!(
+                            "Found Terraform binary '{}' in PATH: {}",
+                            terraform_binary,
+                            path.display()
+                        ));
                         path
                     }
                     Err(_) => {
-                        logging::error("Terraform executable not found in PATH");
+                        logging::error(&format!(
+                            "Terraform binary '{}' not found in PATH",
+                            terraform_binary
+                        ));
                         return Err(TfMcpError::TerraformNotFound.into());
                     }
                 }
             }
         };
 
-        // Verify terraform executable exists
+        // Verify Terraform binary exists
         if !terraform_path.exists() {
             logging::error(&format!(
-                "Terraform executable not found at: {}",
+                "Terraform binary not found at: {}",
                 terraform_path.display()
             ));
             return Err(TfMcpError::TerraformNotFound.into());

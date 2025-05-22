@@ -8,7 +8,7 @@ pub enum TerraformError {
     #[error("Terraform command failed: {0}")]
     CommandFailed(String),
 
-    #[error("Terraform executable not found at: {0}")]
+    #[error("Terraform binary not found at: {0}")]
     ExecutableNotFound(String),
 
     #[error("Invalid Terraform project directory: {0}")]
