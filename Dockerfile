@@ -20,7 +20,7 @@ RUN TERRAFORM_VERSION="1.11.1" && \
 WORKDIR /app
 
 # Copy only the files needed for dependencies first to leverage Docker cache
-COPY Cargo.toml Cargo.lock rust-toolchain.toml build.rs ./
+COPY Cargo.toml rust-toolchain.toml build.rs ./
 
 # Create a dummy main.rs to build dependencies
 RUN mkdir -p src && \
