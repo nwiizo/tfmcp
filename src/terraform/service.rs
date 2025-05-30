@@ -1,4 +1,7 @@
-use crate::terraform::model::{TerraformAnalysis, TerraformResource};
+use crate::terraform::model::{
+    DetailedValidationResult, TerraformAnalysis, TerraformOutput,
+    TerraformProvider, TerraformResource, TerraformValidateOutput, TerraformVariable,
+};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
@@ -222,6 +225,84 @@ impl TerraformService {
         }
     }
 
+    pub async fn validate_detailed(&self) -> anyhow::Result<DetailedValidationResult> {
+        // Run terraform validate with JSON output
+        let validate_json = self.validate().await?;
+        let validate_output: TerraformValidateOutput = serde_json::from_str(&validate_json)?;
+        
+        // Additional validation checks
+        let mut warnings = Vec::new();
+        let mut suggestions = Vec::new();
+        
+        // Check for .tf files in the directory
+        let tf_files = self.find_terraform_files().await?;
+        if tf_files.is_empty() {
+            warnings.push("No Terraform configuration files found in the directory".to_string());
+        }
+        
+        // Analyze configuration for best practices
+        if !tf_files.is_empty() {
+            let analysis = self.analyze_configurations().await?;
+            
+            // Check for missing descriptions
+            for var in &analysis.variables {
+                if var.description.is_none() || var.description.as_ref().map(|d| d.is_empty()).unwrap_or(false) {
+                    suggestions.push(format!("Variable '{}' is missing a description", var.name));
+                }
+            }
+            
+            // Check for hardcoded values that should be variables
+            for resource in &analysis.resources {
+                if resource.provider == "aws" && resource.resource_type.contains("instance") {
+                    suggestions.push(format!("Consider using variables for AWS instance configurations in resource '{}'", resource.name));
+                }
+            }
+            
+            // Check for missing output descriptions
+            for output in &analysis.outputs {
+                if output.description.is_none() || output.description.as_ref().map(|d| d.is_empty()).unwrap_or(false) {
+                    suggestions.push(format!("Output '{}' is missing a description", output.name));
+                }
+            }
+            
+            // Check for provider version constraints
+            if analysis.providers.iter().any(|p| p.version.is_none()) {
+                warnings.push("Some providers are missing version constraints".to_string());
+            }
+        }
+        
+        Ok(DetailedValidationResult {
+            valid: validate_output.valid,
+            error_count: validate_output.error_count,
+            warning_count: validate_output.warning_count + warnings.len() as i32,
+            diagnostics: validate_output.diagnostics,
+            additional_warnings: warnings,
+            suggestions,
+            checked_files: tf_files.len(),
+        })
+    }
+
+    async fn find_terraform_files(&self) -> anyhow::Result<Vec<String>> {
+        let mut tf_files = Vec::new();
+        let entries = std::fs::read_dir(&self.project_directory)?;
+        
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    if ext == "tf" || ext == "tf.json" {
+                        if let Some(name) = path.file_name() {
+                            tf_files.push(name.to_string_lossy().to_string());
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(tf_files)
+    }
+
     pub async fn destroy(&self, auto_approve: bool) -> anyhow::Result<String> {
         let mut cmd = Command::new(&self.terraform_path);
         cmd.arg("destroy");
@@ -333,10 +414,12 @@ impl TerraformService {
                     "[DEBUG] Found resource: {} ({})",
                     resource_name, resource_type
                 );
+                let provider = resource_type.split('_').next().unwrap_or("unknown").to_string();
                 analysis.resources.push(TerraformResource {
                     resource_type,
                     name: resource_name,
                     file: file_name.to_string(),
+                    provider,
                 });
             }
         }
@@ -348,7 +431,17 @@ impl TerraformService {
             if captures.len() >= 2 {
                 let variable_name = captures[1].to_string();
                 eprintln!("[DEBUG] Found variable: {}", variable_name);
-                analysis.variables.push(variable_name);
+                // Extract variable details from the content
+                let var_description = self.extract_variable_description(&content, &variable_name);
+                let var_type = self.extract_variable_type(&content, &variable_name);
+                let var_default = self.extract_variable_default(&content, &variable_name);
+                
+                analysis.variables.push(TerraformVariable {
+                    name: variable_name,
+                    description: var_description,
+                    type_: var_type,
+                    default: var_default,
+                });
             }
         }
 
@@ -359,7 +452,14 @@ impl TerraformService {
             if captures.len() >= 2 {
                 let output_name = captures[1].to_string();
                 eprintln!("[DEBUG] Found output: {}", output_name);
-                analysis.outputs.push(output_name);
+                // Extract output details from the content
+                let output_description = self.extract_output_description(&content, &output_name);
+                
+                analysis.outputs.push(TerraformOutput {
+                    name: output_name,
+                    description: output_description,
+                    value: None,
+                });
             }
         }
 
@@ -369,14 +469,90 @@ impl TerraformService {
         for captures in provider_regex.captures_iter(&content) {
             if captures.len() >= 2 {
                 let provider_name = captures[1].to_string();
-                if !analysis.providers.contains(&provider_name) {
+                // Check if provider already exists
+                if !analysis.providers.iter().any(|p| p.name == provider_name) {
                     eprintln!("[DEBUG] Found provider: {}", provider_name);
-                    analysis.providers.push(provider_name);
+                    let provider_version = self.extract_provider_version(&content, &provider_name);
+                    analysis.providers.push(TerraformProvider {
+                        name: provider_name,
+                        version: provider_version,
+                    });
                 }
             }
         }
 
         eprintln!("[DEBUG] Completed analysis of {}", file_path.display());
         Ok(())
+    }
+
+    fn extract_variable_description(&self, content: &str, var_name: &str) -> Option<String> {
+        // Simple extraction - looks for description field within variable block
+        let pattern = format!(r#"variable\s+"{}"\s*\{{[^}}]*description\s*=\s*"([^"]+)""#, regex::escape(var_name));
+        if let Ok(re) = regex::Regex::new(&pattern) {
+            if let Some(captures) = re.captures(content) {
+                return captures.get(1).map(|m| m.as_str().to_string());
+            }
+        }
+        None
+    }
+
+    fn extract_variable_type(&self, content: &str, var_name: &str) -> Option<String> {
+        // Simple extraction - looks for type field within variable block
+        let pattern = format!(r#"variable\s+"{}"\s*\{{[^}}]*type\s*=\s*([^\n]+)"#, regex::escape(var_name));
+        if let Ok(re) = regex::Regex::new(&pattern) {
+            if let Some(captures) = re.captures(content) {
+                return captures.get(1).map(|m| m.as_str().trim().to_string());
+            }
+        }
+        None
+    }
+
+    fn extract_variable_default(&self, content: &str, var_name: &str) -> Option<serde_json::Value> {
+        // Simple extraction - looks for default field within variable block
+        let pattern = format!(r#"variable\s+"{}"\s*\{{[^}}]*default\s*=\s*([^\n]+)"#, regex::escape(var_name));
+        if let Ok(re) = regex::Regex::new(&pattern) {
+            if let Some(captures) = re.captures(content) {
+                if let Some(default_str) = captures.get(1).map(|m| m.as_str().trim()) {
+                    // Try to parse as JSON value
+                    if let Ok(value) = serde_json::from_str(default_str) {
+                        return Some(value);
+                    }
+                    // If not valid JSON, return as string
+                    return Some(serde_json::Value::String(default_str.to_string()));
+                }
+            }
+        }
+        None
+    }
+
+    fn extract_output_description(&self, content: &str, output_name: &str) -> Option<String> {
+        // Simple extraction - looks for description field within output block
+        let pattern = format!(r#"output\s+"{}"\s*\{{[^}}]*description\s*=\s*"([^"]+)""#, regex::escape(output_name));
+        if let Ok(re) = regex::Regex::new(&pattern) {
+            if let Some(captures) = re.captures(content) {
+                return captures.get(1).map(|m| m.as_str().to_string());
+            }
+        }
+        None
+    }
+
+    fn extract_provider_version(&self, content: &str, provider_name: &str) -> Option<String> {
+        // Look for version constraint in provider block
+        let pattern = format!(r#"provider\s+"{}"\s*\{{[^}}]*version\s*=\s*"([^"]+)""#, regex::escape(provider_name));
+        if let Ok(re) = regex::Regex::new(&pattern) {
+            if let Some(captures) = re.captures(content) {
+                return captures.get(1).map(|m| m.as_str().to_string());
+            }
+        }
+        
+        // Also check required_providers block
+        let pattern = format!(r#"required_providers\s*\{{[^}}]*{}\s*=\s*\{{[^}}]*version\s*=\s*"([^"]+)""#, regex::escape(provider_name));
+        if let Ok(re) = regex::Regex::new(&pattern) {
+            if let Some(captures) = re.captures(content) {
+                return captures.get(1).map(|m| m.as_str().to_string());
+            }
+        }
+        
+        None
     }
 }

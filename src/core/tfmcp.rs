@@ -2,6 +2,7 @@ use crate::config::{self, Config};
 use crate::mcp::handler::McpHandler;
 use crate::mcp::stdio::StdioTransport;
 use crate::shared::logging;
+use crate::terraform::model::{DetailedValidationResult, TerraformAnalysis};
 use crate::terraform::service::TerraformService;
 use std::path::PathBuf;
 
@@ -333,6 +334,11 @@ resource "local_file" "example" {
     }
 
     #[allow(dead_code)]
+    pub async fn get_terraform_analysis(&self) -> anyhow::Result<TerraformAnalysis> {
+        self.terraform_service.analyze_configurations().await
+    }
+
+    #[allow(dead_code)]
     pub async fn get_terraform_version(&self) -> anyhow::Result<String> {
         self.terraform_service.get_version().await
     }
@@ -359,6 +365,10 @@ resource "local_file" "example" {
 
     pub async fn validate_configuration(&self) -> anyhow::Result<String> {
         self.terraform_service.validate().await
+    }
+
+    pub async fn validate_configuration_detailed(&self) -> anyhow::Result<DetailedValidationResult> {
+        self.terraform_service.validate_detailed().await
     }
 
     pub async fn destroy_terraform(&self, auto_approve: bool) -> anyhow::Result<String> {

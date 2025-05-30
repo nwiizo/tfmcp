@@ -159,6 +159,94 @@ const TOOLS_JSON: &str = r#"{
       }
     },
     {
+      "name": "validate_terraform_detailed",
+      "description": "Perform detailed validation of Terraform configuration files with best practice checks",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "description": "Whether the configuration is valid"
+          },
+          "error_count": {
+            "type": "integer",
+            "description": "Number of validation errors"
+          },
+          "warning_count": {
+            "type": "integer",
+            "description": "Number of warnings including best practice violations"
+          },
+          "diagnostics": {
+            "type": "array",
+            "description": "List of validation diagnostics from Terraform",
+            "items": {
+              "type": "object",
+              "properties": {
+                "severity": {
+                  "type": "string",
+                  "description": "Severity level (error, warning)"
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "Summary of the diagnostic"
+                },
+                "detail": {
+                  "type": "string",
+                  "description": "Detailed description"
+                },
+                "range": {
+                  "type": "object",
+                  "description": "Location of the issue in the file",
+                  "properties": {
+                    "filename": {
+                      "type": "string"
+                    },
+                    "start": {
+                      "type": "object",
+                      "properties": {
+                        "line": { "type": "integer" },
+                        "column": { "type": "integer" }
+                      }
+                    },
+                    "end": {
+                      "type": "object",
+                      "properties": {
+                        "line": { "type": "integer" },
+                        "column": { "type": "integer" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "additional_warnings": {
+            "type": "array",
+            "description": "Additional warnings from best practice analysis",
+            "items": {
+              "type": "string"
+            }
+          },
+          "suggestions": {
+            "type": "array",
+            "description": "Suggestions for improving the configuration",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checked_files": {
+            "type": "integer",
+            "description": "Number of Terraform files checked"
+          }
+        },
+        "required": ["valid", "error_count", "warning_count", "diagnostics", "additional_warnings", "suggestions", "checked_files"]
+      }
+    },
+    {
       "name": "get_terraform_state",
       "description": "Get the current Terraform state",
       "inputSchema": {
@@ -451,6 +539,9 @@ impl<'a> McpHandler<'a> {
             "validate_terraform" => {
                 self.handle_validate_terraform(transport, id).await?;
             }
+            "validate_terraform_detailed" => {
+                self.handle_validate_terraform_detailed(transport, id).await?;
+            }
             "get_terraform_state" => {
                 self.handle_get_terraform_state(transport, id).await?;
             }
@@ -613,6 +704,39 @@ impl<'a> McpHandler<'a> {
                     format!("Failed to validate Terraform configuration: {}", err),
                 )
                 .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_validate_terraform_detailed(
+        &self,
+        transport: &StdioTransport,
+        id: u64,
+    ) -> anyhow::Result<()> {
+        match self.tfmcp.validate_configuration_detailed().await {
+            Ok(result) => {
+                let result_json = json!({
+                    "valid": result.valid,
+                    "error_count": result.error_count,
+                    "warning_count": result.warning_count,
+                    "diagnostics": result.diagnostics,
+                    "additional_warnings": result.additional_warnings,
+                    "suggestions": result.suggestions,
+                    "checked_files": result.checked_files
+                });
+                let obj_as_str = serde_json::to_string(&result_json)?;
+                self.send_text_response(transport, id, &obj_as_str).await?
+            }
+            Err(err) => {
+                self.send_error_response(
+                    transport,
+                    id,
+                    JsonRpcErrorCode::InternalError,
+                    format!("Failed to perform detailed validation: {}", err),
+                )
+                .await?
             }
         }
 
