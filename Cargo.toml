@@ -34,7 +34,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls",
 ] }
 which = "6.0.1"
-chrono = "0.4.35"
+chrono = { version = "0.4.35", features = ["serde"] }
 
 [dev-dependencies]
 tempfile = "3.15.0"

@@ -1,3 +1,4 @@
+use crate::shared::security::SecurityManager;
 use crate::terraform::model::{
     DetailedValidationResult, TerraformAnalysis, TerraformValidateOutput,
 };
@@ -28,6 +29,7 @@ pub enum TerraformError {
 pub struct TerraformService {
     terraform_path: PathBuf,
     project_directory: PathBuf,
+    security_manager: SecurityManager,
 }
 
 impl TerraformService {
@@ -37,9 +39,18 @@ impl TerraformService {
             terraform_path.display(),
             project_directory.display()
         );
+        let security_manager = SecurityManager::new().unwrap_or_else(|e| {
+            eprintln!("[WARN] Failed to initialize security manager: {}", e);
+            // Create a default security manager with basic settings
+            SecurityManager {
+                policy: crate::shared::security::SecurityPolicy::default(),
+                audit_log: None,
+            }
+        });
         Self {
             terraform_path,
             project_directory,
+            security_manager,
         }
     }
 
@@ -130,6 +141,29 @@ impl TerraformService {
     }
 
     pub async fn apply(&self, auto_approve: bool) -> anyhow::Result<String> {
+        // Security checks
+        if !self.security_manager.is_command_allowed("apply") {
+            return Err(anyhow::anyhow!(
+                "Apply operation blocked by security policy. Set TFMCP_ALLOW_DANGEROUS_OPS=true to enable."
+            ));
+        }
+
+        if auto_approve && !self.security_manager.is_auto_approve_allowed("apply") {
+            return Err(anyhow::anyhow!(
+                "Auto-approve for apply operation blocked by security policy. Set TFMCP_ALLOW_AUTO_APPROVE=true to enable."
+            ));
+        }
+
+        // Validate directory security
+        self.security_manager
+            .validate_directory(&self.project_directory)?;
+
+        // Check resource limits
+        if let Ok(resources) = self.list_resources().await {
+            self.security_manager
+                .check_resource_limit(resources.len())?;
+        }
+
         let mut cmd = Command::new(&self.terraform_path);
         cmd.arg("apply");
 
@@ -137,9 +171,37 @@ impl TerraformService {
             cmd.arg("-auto-approve");
         }
 
+        let command_args = vec!["terraform".to_string(), "apply".to_string()];
         let output = cmd.current_dir(&self.project_directory).output()?;
+        let success = output.status.success();
 
-        if output.status.success() {
+        // Log audit entry
+        let error_msg = if !success {
+            Some(String::from_utf8_lossy(&output.stderr).to_string())
+        } else {
+            None
+        };
+
+        let resource_count = if success {
+            self.list_resources().await.ok().map(|r| r.len())
+        } else {
+            None
+        };
+
+        let audit_entry = self.security_manager.create_audit_entry(
+            "apply",
+            &self.project_directory.to_string_lossy(),
+            &command_args,
+            success,
+            error_msg.clone(),
+            resource_count,
+        );
+
+        if let Err(e) = self.security_manager.log_audit_entry(audit_entry) {
+            eprintln!("[WARN] Failed to log audit entry: {}", e);
+        }
+
+        if success {
             Ok(String::from_utf8_lossy(&output.stdout).to_string())
         } else {
             Err(anyhow::anyhow!(
@@ -341,6 +403,23 @@ impl TerraformService {
     }
 
     pub async fn destroy(&self, auto_approve: bool) -> anyhow::Result<String> {
+        // Security checks
+        if !self.security_manager.is_command_allowed("destroy") {
+            return Err(anyhow::anyhow!(
+                "Destroy operation blocked by security policy. Set TFMCP_ALLOW_DANGEROUS_OPS=true to enable."
+            ));
+        }
+
+        if auto_approve && !self.security_manager.is_auto_approve_allowed("destroy") {
+            return Err(anyhow::anyhow!(
+                "Auto-approve for destroy operation blocked by security policy. Set TFMCP_ALLOW_AUTO_APPROVE=true to enable."
+            ));
+        }
+
+        // Validate directory security
+        self.security_manager
+            .validate_directory(&self.project_directory)?;
+
         let mut cmd = Command::new(&self.terraform_path);
         cmd.arg("destroy");
 
@@ -348,9 +427,31 @@ impl TerraformService {
             cmd.arg("-auto-approve");
         }
 
+        let command_args = vec!["terraform".to_string(), "destroy".to_string()];
         let output = cmd.current_dir(&self.project_directory).output()?;
+        let success = output.status.success();
 
-        if output.status.success() {
+        // Log audit entry
+        let error_msg = if !success {
+            Some(String::from_utf8_lossy(&output.stderr).to_string())
+        } else {
+            None
+        };
+
+        let audit_entry = self.security_manager.create_audit_entry(
+            "destroy",
+            &self.project_directory.to_string_lossy(),
+            &command_args,
+            success,
+            error_msg.clone(),
+            None, // Resource count not applicable for destroy
+        );
+
+        if let Err(e) = self.security_manager.log_audit_entry(audit_entry) {
+            eprintln!("[WARN] Failed to log audit entry: {}", e);
+        }
+
+        if success {
             Ok(String::from_utf8_lossy(&output.stdout).to_string())
         } else {
             Err(anyhow::anyhow!(
@@ -477,5 +578,17 @@ impl TerraformService {
 
         eprintln!("[DEBUG] Completed analysis of {}", file_path.display());
         Ok(())
+    }
+
+    /// Get current security policy for debugging/reporting
+    #[allow(dead_code)]
+    pub fn get_security_policy(&self) -> &crate::shared::security::SecurityPolicy {
+        self.security_manager.get_policy()
+    }
+
+    /// Check if a specific operation is allowed by security policy
+    #[allow(dead_code)]
+    pub fn is_operation_allowed(&self, operation: &str) -> bool {
+        self.security_manager.is_command_allowed(operation)
     }
 }
