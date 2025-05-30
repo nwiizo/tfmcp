@@ -30,3 +30,6 @@ Thumbs.db
 
 # Test artifacts
 coverage/ 
+
+# Node.js dependencies
+node_modules/
