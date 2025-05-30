@@ -1,7 +1,7 @@
 use crate::terraform::model::{
-    DetailedValidationResult, TerraformAnalysis, TerraformOutput,
-    TerraformProvider, TerraformResource, TerraformValidateOutput, TerraformVariable,
+    DetailedValidationResult, TerraformAnalysis, TerraformValidateOutput,
 };
+use crate::terraform::parser::TerraformParser;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
@@ -9,20 +9,19 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum TerraformError {
     #[error("Terraform command failed: {0}")]
-    CommandFailed(String),
+    CommandError(String),
 
-    #[error("Terraform binary not found at: {0}")]
-    ExecutableNotFound(String),
+    #[error("Terraform binary not found at path: {0}")]
+    BinaryNotFound(String),
 
-    #[error("Invalid Terraform project directory: {0}")]
-    InvalidProjectDirectory(String),
+    #[error("Invalid JSON output: {0}")]
+    JsonParseError(String),
 
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    IoError(#[from] std::io::Error),
 
-    #[error("Failed to parse Terraform output: {0}")]
-    #[allow(dead_code)]
-    ParseError(String),
+    #[error("Terraform init required")]
+    InitRequired,
 }
 
 pub struct TerraformService {
@@ -31,68 +30,32 @@ pub struct TerraformService {
 }
 
 impl TerraformService {
-    pub fn new(
-        terraform_path: PathBuf,
-        project_directory: PathBuf,
-    ) -> Result<Self, TerraformError> {
-        // Validate terraform path
-        if !terraform_path.exists() {
-            return Err(TerraformError::ExecutableNotFound(
-                terraform_path.to_string_lossy().to_string(),
-            ));
-        }
-
-        // Validate project directory
-        if !project_directory.exists() || !project_directory.is_dir() {
-            return Err(TerraformError::InvalidProjectDirectory(
-                project_directory.to_string_lossy().to_string(),
-            ));
-        }
-
-        // Check if the directory contains terraform files
-        let has_tf_files = std::fs::read_dir(&project_directory)?
-            .filter_map(Result::ok)
-            .any(|entry| entry.path().extension().is_some_and(|ext| ext == "tf"));
-
-        if !has_tf_files {
-            return Err(TerraformError::InvalidProjectDirectory(format!(
-                "No Terraform (.tf) files found in {}",
-                project_directory.display()
-            )));
-        }
-
-        Ok(Self {
+    pub fn new(terraform_path: PathBuf, project_directory: PathBuf) -> Self {
+        eprintln!(
+            "[DEBUG] TerraformService initialized with terraform path: {} and project directory: {}",
+            terraform_path.display(),
+            project_directory.display()
+        );
+        Self {
             terraform_path,
             project_directory,
-        })
+        }
     }
 
-    pub fn change_project_directory(
-        &mut self,
-        new_directory: PathBuf,
-    ) -> Result<(), TerraformError> {
-        // Validate new project directory
-        if !new_directory.exists() || !new_directory.is_dir() {
-            return Err(TerraformError::InvalidProjectDirectory(
-                new_directory.to_string_lossy().to_string(),
-            ));
-        }
+    pub fn set_project_directory(&mut self, directory: PathBuf) {
+        eprintln!(
+            "[DEBUG] Setting project directory to: {}",
+            directory.display()
+        );
+        self.project_directory = directory;
+    }
 
-        // Check if the directory contains terraform files
-        let has_tf_files = std::fs::read_dir(&new_directory)?
-            .filter_map(Result::ok)
-            .any(|entry| entry.path().extension().is_some_and(|ext| ext == "tf"));
-
-        if !has_tf_files {
-            return Err(TerraformError::InvalidProjectDirectory(format!(
-                "No Terraform (.tf) files found in {}",
-                new_directory.display()
-            )));
-        }
-
-        // 新しいディレクトリに変更
-        self.project_directory = new_directory;
-
+    pub fn change_project_directory(&mut self, directory: PathBuf) -> anyhow::Result<()> {
+        eprintln!(
+            "[DEBUG] Changing project directory to: {}",
+            directory.display()
+        );
+        self.project_directory = directory;
         Ok(())
     }
 
@@ -100,104 +63,156 @@ impl TerraformService {
         &self.project_directory
     }
 
-    #[allow(dead_code)]
     pub async fn get_version(&self) -> anyhow::Result<String> {
         let output = Command::new(&self.terraform_path)
             .arg("version")
-            .current_dir(&self.project_directory)
+            .arg("-json")
             .output()?;
 
-        if !output.status.success() {
-            return Err(TerraformError::CommandFailed(
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            )
-            .into());
+        let output_str = String::from_utf8_lossy(&output.stdout);
+
+        // Parse JSON output
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&output_str) {
+            if let Some(version) = json.get("terraform_version") {
+                return Ok(version.to_string().trim_matches('"').to_string());
+            }
         }
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        // Fallback to non-JSON output
+        let output = Command::new(&self.terraform_path).arg("version").output()?;
+
+        let version_output = String::from_utf8_lossy(&output.stdout);
+        let version_line = version_output
+            .lines()
+            .find(|line| line.starts_with("Terraform") || line.starts_with("OpenTofu"))
+            .unwrap_or("Unknown version");
+
+        Ok(version_line.to_string())
     }
 
     pub async fn init(&self) -> anyhow::Result<String> {
         let output = Command::new(&self.terraform_path)
-            .args(["init", "-no-color"])
+            .arg("init")
             .current_dir(&self.project_directory)
             .output()?;
 
-        if !output.status.success() {
-            return Err(TerraformError::CommandFailed(
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            )
-            .into());
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            Err(anyhow::anyhow!(
+                "Terraform init failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
-
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
     pub async fn get_plan(&self) -> anyhow::Result<String> {
-        // Run terraform plan and capture output
         let output = Command::new(&self.terraform_path)
-            .args(["plan", "-no-color"])
+            .arg("plan")
+            .arg("-json")
             .current_dir(&self.project_directory)
             .output()?;
 
-        if !output.status.success() {
-            return Err(TerraformError::CommandFailed(
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            )
-            .into());
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("terraform init") {
+                Err(anyhow::anyhow!("Terraform initialization required. Please run 'terraform init' first."))
+            } else {
+                Err(anyhow::anyhow!("Terraform plan failed: {}", stderr))
+            }
         }
-
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
     pub async fn apply(&self, auto_approve: bool) -> anyhow::Result<String> {
-        let mut args = vec!["apply", "-no-color"];
+        let mut cmd = Command::new(&self.terraform_path);
+        cmd.arg("apply");
+
         if auto_approve {
-            args.push("-auto-approve");
+            cmd.arg("-auto-approve");
         }
 
-        let output = Command::new(&self.terraform_path)
-            .args(&args)
-            .current_dir(&self.project_directory)
-            .output()?;
+        let output = cmd.current_dir(&self.project_directory).output()?;
 
-        if !output.status.success() {
-            return Err(TerraformError::CommandFailed(
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            )
-            .into());
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            Err(anyhow::anyhow!(
+                "Terraform apply failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
-
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
     pub async fn get_state(&self) -> anyhow::Result<String> {
         let output = Command::new(&self.terraform_path)
-            .args(["show", "-no-color"])
+            .arg("state")
+            .arg("list")
             .current_dir(&self.project_directory)
             .output()?;
 
-        if !output.status.success() {
-            return Err(TerraformError::CommandFailed(
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            )
-            .into());
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            Err(anyhow::anyhow!(
+                "Failed to get Terraform state: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
+    }
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    pub async fn refresh(&self) -> anyhow::Result<String> {
+        let output = Command::new(&self.terraform_path)
+            .arg("refresh")
+            .current_dir(&self.project_directory)
+            .output()?;
+
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            Err(anyhow::anyhow!(
+                "Terraform refresh failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
+        }
+    }
+
+    pub async fn create_terraform_configuration(&self, content: &str) -> anyhow::Result<String> {
+        // Write the content to a main.tf file in the project directory
+        let file_path = self.project_directory.join("main.tf");
+        std::fs::write(&file_path, content)?;
+
+        Ok(format!(
+            "Terraform configuration created at: {}",
+            file_path.display()
+        ))
+    }
+
+    pub async fn read_terraform_file(&self, filename: &str) -> anyhow::Result<String> {
+        let file_path = self.project_directory.join(filename);
+        match std::fs::read_to_string(&file_path) {
+            Ok(content) => Ok(content),
+            Err(e) => Err(anyhow::anyhow!(
+                "Failed to read file {}: {}",
+                file_path.display(),
+                e
+            )),
+        }
     }
 
     pub async fn list_resources(&self) -> anyhow::Result<Vec<String>> {
         let output = Command::new(&self.terraform_path)
-            .args(["state", "list"])
+            .arg("state")
+            .arg("list")
             .current_dir(&self.project_directory)
             .output()?;
 
         if !output.status.success() {
-            return Err(TerraformError::CommandFailed(
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            )
-            .into());
+            return Err(anyhow::anyhow!(
+                "Failed to list resources: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         let resources = String::from_utf8_lossy(&output.stdout)
@@ -229,48 +244,63 @@ impl TerraformService {
         // Run terraform validate with JSON output
         let validate_json = self.validate().await?;
         let validate_output: TerraformValidateOutput = serde_json::from_str(&validate_json)?;
-        
+
         // Additional validation checks
         let mut warnings = Vec::new();
         let mut suggestions = Vec::new();
-        
+
         // Check for .tf files in the directory
         let tf_files = self.find_terraform_files().await?;
         if tf_files.is_empty() {
             warnings.push("No Terraform configuration files found in the directory".to_string());
         }
-        
+
         // Analyze configuration for best practices
         if !tf_files.is_empty() {
             let analysis = self.analyze_configurations().await?;
-            
+
             // Check for missing descriptions
             for var in &analysis.variables {
-                if var.description.is_none() || var.description.as_ref().map(|d| d.is_empty()).unwrap_or(false) {
+                if var.description.is_none()
+                    || var
+                        .description
+                        .as_ref()
+                        .map(|d| d.is_empty())
+                        .unwrap_or(false)
+                {
                     suggestions.push(format!("Variable '{}' is missing a description", var.name));
                 }
             }
-            
+
             // Check for hardcoded values that should be variables
             for resource in &analysis.resources {
                 if resource.provider == "aws" && resource.resource_type.contains("instance") {
-                    suggestions.push(format!("Consider using variables for AWS instance configurations in resource '{}'", resource.name));
+                    suggestions.push(format!(
+                        "Consider using variables for AWS instance configurations in resource '{}'",
+                        resource.name
+                    ));
                 }
             }
-            
+
             // Check for missing output descriptions
             for output in &analysis.outputs {
-                if output.description.is_none() || output.description.as_ref().map(|d| d.is_empty()).unwrap_or(false) {
+                if output.description.is_none()
+                    || output
+                        .description
+                        .as_ref()
+                        .map(|d| d.is_empty())
+                        .unwrap_or(false)
+                {
                     suggestions.push(format!("Output '{}' is missing a description", output.name));
                 }
             }
-            
+
             // Check for provider version constraints
             if analysis.providers.iter().any(|p| p.version.is_none()) {
                 warnings.push("Some providers are missing version constraints".to_string());
             }
         }
-        
+
         Ok(DetailedValidationResult {
             valid: validate_output.valid,
             error_count: validate_output.error_count,
@@ -285,7 +315,7 @@ impl TerraformService {
     async fn find_terraform_files(&self) -> anyhow::Result<Vec<String>> {
         let mut tf_files = Vec::new();
         let entries = std::fs::read_dir(&self.project_directory)?;
-        
+
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
@@ -299,7 +329,7 @@ impl TerraformService {
                 }
             }
         }
-        
+
         Ok(tf_files)
     }
 
@@ -398,161 +428,47 @@ impl TerraformService {
         };
 
         let file_name = file_path.file_name().unwrap_or_default().to_string_lossy();
+        let parser = TerraformParser::new(content);
 
-        // Very basic parsing for demonstration purposes
-        // In a real implementation, you would want to use a proper HCL parser
-
+        // Parse resources
         eprintln!("[DEBUG] Parsing resources in {}", file_path.display());
-        // Find resources
-        let resource_regex = regex::Regex::new(r#"resource\s+"([^"]+)"\s+"([^"]+)"#).unwrap();
-        for captures in resource_regex.captures_iter(&content) {
-            if captures.len() >= 3 {
-                let resource_type = captures[1].to_string();
-                let resource_name = captures[2].to_string();
-
-                eprintln!(
-                    "[DEBUG] Found resource: {} ({})",
-                    resource_name, resource_type
-                );
-                let provider = resource_type.split('_').next().unwrap_or("unknown").to_string();
-                analysis.resources.push(TerraformResource {
-                    resource_type,
-                    name: resource_name,
-                    file: file_name.to_string(),
-                    provider,
-                });
-            }
+        let resources = parser.parse_resources(&file_name);
+        for resource in &resources {
+            eprintln!(
+                "[DEBUG] Found resource: {} ({})",
+                resource.name, resource.resource_type
+            );
         }
+        analysis.resources.extend(resources);
 
+        // Parse variables
         eprintln!("[DEBUG] Parsing variables in {}", file_path.display());
-        // Find variables
-        let variable_regex = regex::Regex::new(r#"variable\s+"([^"]+)"#).unwrap();
-        for captures in variable_regex.captures_iter(&content) {
-            if captures.len() >= 2 {
-                let variable_name = captures[1].to_string();
-                eprintln!("[DEBUG] Found variable: {}", variable_name);
-                // Extract variable details from the content
-                let var_description = self.extract_variable_description(&content, &variable_name);
-                let var_type = self.extract_variable_type(&content, &variable_name);
-                let var_default = self.extract_variable_default(&content, &variable_name);
-                
-                analysis.variables.push(TerraformVariable {
-                    name: variable_name,
-                    description: var_description,
-                    type_: var_type,
-                    default: var_default,
-                });
-            }
+        let variables = parser.parse_variables();
+        for variable in &variables {
+            eprintln!("[DEBUG] Found variable: {}", variable.name);
         }
+        analysis.variables.extend(variables);
 
+        // Parse outputs
         eprintln!("[DEBUG] Parsing outputs in {}", file_path.display());
-        // Find outputs
-        let output_regex = regex::Regex::new(r#"output\s+"([^"]+)"#).unwrap();
-        for captures in output_regex.captures_iter(&content) {
-            if captures.len() >= 2 {
-                let output_name = captures[1].to_string();
-                eprintln!("[DEBUG] Found output: {}", output_name);
-                // Extract output details from the content
-                let output_description = self.extract_output_description(&content, &output_name);
-                
-                analysis.outputs.push(TerraformOutput {
-                    name: output_name,
-                    description: output_description,
-                    value: None,
-                });
-            }
+        let outputs = parser.parse_outputs();
+        for output in &outputs {
+            eprintln!("[DEBUG] Found output: {}", output.name);
         }
+        analysis.outputs.extend(outputs);
 
+        // Parse providers
         eprintln!("[DEBUG] Parsing providers in {}", file_path.display());
-        // Find providers
-        let provider_regex = regex::Regex::new(r#"provider\s+"([^"]+)"#).unwrap();
-        for captures in provider_regex.captures_iter(&content) {
-            if captures.len() >= 2 {
-                let provider_name = captures[1].to_string();
-                // Check if provider already exists
-                if !analysis.providers.iter().any(|p| p.name == provider_name) {
-                    eprintln!("[DEBUG] Found provider: {}", provider_name);
-                    let provider_version = self.extract_provider_version(&content, &provider_name);
-                    analysis.providers.push(TerraformProvider {
-                        name: provider_name,
-                        version: provider_version,
-                    });
-                }
+        let providers = parser.parse_providers();
+        for provider in providers {
+            // Check if provider already exists
+            if !analysis.providers.iter().any(|p| p.name == provider.name) {
+                eprintln!("[DEBUG] Found provider: {}", provider.name);
+                analysis.providers.push(provider);
             }
         }
 
         eprintln!("[DEBUG] Completed analysis of {}", file_path.display());
         Ok(())
-    }
-
-    fn extract_variable_description(&self, content: &str, var_name: &str) -> Option<String> {
-        // Simple extraction - looks for description field within variable block
-        let pattern = format!(r#"variable\s+"{}"\s*\{{[^}}]*description\s*=\s*"([^"]+)""#, regex::escape(var_name));
-        if let Ok(re) = regex::Regex::new(&pattern) {
-            if let Some(captures) = re.captures(content) {
-                return captures.get(1).map(|m| m.as_str().to_string());
-            }
-        }
-        None
-    }
-
-    fn extract_variable_type(&self, content: &str, var_name: &str) -> Option<String> {
-        // Simple extraction - looks for type field within variable block
-        let pattern = format!(r#"variable\s+"{}"\s*\{{[^}}]*type\s*=\s*([^\n]+)"#, regex::escape(var_name));
-        if let Ok(re) = regex::Regex::new(&pattern) {
-            if let Some(captures) = re.captures(content) {
-                return captures.get(1).map(|m| m.as_str().trim().to_string());
-            }
-        }
-        None
-    }
-
-    fn extract_variable_default(&self, content: &str, var_name: &str) -> Option<serde_json::Value> {
-        // Simple extraction - looks for default field within variable block
-        let pattern = format!(r#"variable\s+"{}"\s*\{{[^}}]*default\s*=\s*([^\n]+)"#, regex::escape(var_name));
-        if let Ok(re) = regex::Regex::new(&pattern) {
-            if let Some(captures) = re.captures(content) {
-                if let Some(default_str) = captures.get(1).map(|m| m.as_str().trim()) {
-                    // Try to parse as JSON value
-                    if let Ok(value) = serde_json::from_str(default_str) {
-                        return Some(value);
-                    }
-                    // If not valid JSON, return as string
-                    return Some(serde_json::Value::String(default_str.to_string()));
-                }
-            }
-        }
-        None
-    }
-
-    fn extract_output_description(&self, content: &str, output_name: &str) -> Option<String> {
-        // Simple extraction - looks for description field within output block
-        let pattern = format!(r#"output\s+"{}"\s*\{{[^}}]*description\s*=\s*"([^"]+)""#, regex::escape(output_name));
-        if let Ok(re) = regex::Regex::new(&pattern) {
-            if let Some(captures) = re.captures(content) {
-                return captures.get(1).map(|m| m.as_str().to_string());
-            }
-        }
-        None
-    }
-
-    fn extract_provider_version(&self, content: &str, provider_name: &str) -> Option<String> {
-        // Look for version constraint in provider block
-        let pattern = format!(r#"provider\s+"{}"\s*\{{[^}}]*version\s*=\s*"([^"]+)""#, regex::escape(provider_name));
-        if let Ok(re) = regex::Regex::new(&pattern) {
-            if let Some(captures) = re.captures(content) {
-                return captures.get(1).map(|m| m.as_str().to_string());
-            }
-        }
-        
-        // Also check required_providers block
-        let pattern = format!(r#"required_providers\s*\{{[^}}]*{}\s*=\s*\{{[^}}]*version\s*=\s*"([^"]+)""#, regex::escape(provider_name));
-        if let Ok(re) = regex::Regex::new(&pattern) {
-            if let Some(captures) = re.captures(content) {
-                return captures.get(1).map(|m| m.as_str().to_string());
-            }
-        }
-        
-        None
     }
 }

@@ -247,15 +247,7 @@ resource "local_file" "example" {
             std::fs::write(&main_tf_path, sample_tf_content)?;
         }
 
-        let terraform_service = match TerraformService::new(terraform_path, project_directory) {
-            Ok(service) => service,
-            Err(e) => {
-                logging::error(&format!("Error creating TerraformService: {}", e));
-                // Instead of immediately returning error, create a dummy service
-                // This allows the MCP server to start but operations will fail gracefully
-                return Err(e.into());
-            }
-        };
+        let terraform_service = TerraformService::new(terraform_path, project_directory);
 
         logging::info("TfMcp initialized successfully");
         Ok(Self {
@@ -367,7 +359,9 @@ resource "local_file" "example" {
         self.terraform_service.validate().await
     }
 
-    pub async fn validate_configuration_detailed(&self) -> anyhow::Result<DetailedValidationResult> {
+    pub async fn validate_configuration_detailed(
+        &self,
+    ) -> anyhow::Result<DetailedValidationResult> {
         self.terraform_service.validate_detailed().await
     }
 

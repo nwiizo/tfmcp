@@ -540,7 +540,8 @@ impl<'a> McpHandler<'a> {
                 self.handle_validate_terraform(transport, id).await?;
             }
             "validate_terraform_detailed" => {
-                self.handle_validate_terraform_detailed(transport, id).await?;
+                self.handle_validate_terraform_detailed(transport, id)
+                    .await?;
             }
             "get_terraform_state" => {
                 self.handle_get_terraform_state(transport, id).await?;
