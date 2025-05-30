@@ -7,6 +7,7 @@ use std::process::Command;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum TerraformError {
     #[error("Terraform command failed: {0}")]
     CommandError(String),
@@ -42,6 +43,7 @@ impl TerraformService {
         }
     }
 
+    #[allow(dead_code)]
     pub fn set_project_directory(&mut self, directory: PathBuf) {
         eprintln!(
             "[DEBUG] Setting project directory to: {}",
@@ -118,7 +120,9 @@ impl TerraformService {
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if stderr.contains("terraform init") {
-                Err(anyhow::anyhow!("Terraform initialization required. Please run 'terraform init' first."))
+                Err(anyhow::anyhow!(
+                    "Terraform initialization required. Please run 'terraform init' first."
+                ))
             } else {
                 Err(anyhow::anyhow!("Terraform plan failed: {}", stderr))
             }
@@ -162,6 +166,7 @@ impl TerraformService {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn refresh(&self) -> anyhow::Result<String> {
         let output = Command::new(&self.terraform_path)
             .arg("refresh")
@@ -178,6 +183,7 @@ impl TerraformService {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn create_terraform_configuration(&self, content: &str) -> anyhow::Result<String> {
         // Write the content to a main.tf file in the project directory
         let file_path = self.project_directory.join("main.tf");
@@ -189,6 +195,7 @@ impl TerraformService {
         ))
     }
 
+    #[allow(dead_code)]
     pub async fn read_terraform_file(&self, filename: &str) -> anyhow::Result<String> {
         let file_path = self.project_directory.join(filename);
         match std::fs::read_to_string(&file_path) {

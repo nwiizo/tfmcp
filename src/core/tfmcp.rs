@@ -468,7 +468,7 @@ resource "local_file" "example" {
             }
             Err(e) => {
                 logging::error(&format!("Failed to change project directory: {}", e));
-                Err(e.into())
+                Err(e)
             }
         }
     }

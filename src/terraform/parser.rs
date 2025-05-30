@@ -1,4 +1,6 @@
-use crate::terraform::model::{TerraformOutput, TerraformProvider, TerraformResource, TerraformVariable};
+use crate::terraform::model::{
+    TerraformOutput, TerraformProvider, TerraformResource, TerraformVariable,
+};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::Value;
@@ -9,17 +11,14 @@ static RESOURCE_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"resource\s+"([^"]+)"\s+"([^"]+)""#).expect("Invalid resource regex")
 });
 
-static VARIABLE_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"variable\s+"([^"]+)""#).expect("Invalid variable regex")
-});
+static VARIABLE_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"variable\s+"([^"]+)""#).expect("Invalid variable regex"));
 
-static OUTPUT_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"output\s+"([^"]+)""#).expect("Invalid output regex")
-});
+static OUTPUT_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"output\s+"([^"]+)""#).expect("Invalid output regex"));
 
-static PROVIDER_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"provider\s+"([^"]+)""#).expect("Invalid provider regex")
-});
+static PROVIDER_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"provider\s+"([^"]+)""#).expect("Invalid provider regex"));
 
 /// Parser for Terraform HCL files
 pub struct TerraformParser {
@@ -44,7 +43,7 @@ impl TerraformParser {
                         .next()
                         .unwrap_or("unknown")
                         .to_string();
-                    
+
                     Some(TerraformResource {
                         resource_type,
                         name: resource_name,
@@ -128,7 +127,7 @@ impl TerraformParser {
             r#"variable\s+"{}"\s*\{{[^}}]*type\s*=\s*([^\n\s}}]+)"#,
             regex::escape(name)
         );
-        
+
         Regex::new(&pattern)
             .ok()?
             .captures(&self.content)?
@@ -144,7 +143,7 @@ impl TerraformParser {
             regex::escape(name),
             field
         );
-        
+
         Regex::new(&pattern)
             .ok()?
             .captures(&self.content)?
@@ -160,11 +159,11 @@ impl TerraformParser {
             regex::escape(name),
             field
         );
-        
+
         let regex = Regex::new(&pattern).ok()?;
         let captures = regex.captures(&self.content)?;
         let value_str = captures.get(1)?.as_str().trim();
-        
+
         // Try to parse as JSON
         if let Ok(value) = serde_json::from_str(value_str) {
             Some(value)
@@ -186,7 +185,7 @@ impl TerraformParser {
             r#"required_providers\s*\{{[^}}]*{}\s*=\s*\{{[^}}]*version\s*=\s*"([^"]+)""#,
             regex::escape(provider_name)
         );
-        
+
         Regex::new(&pattern)
             .ok()?
             .captures(&self.content)?
@@ -200,11 +199,11 @@ impl TerraformParser {
         let regex = Regex::new(pattern).ok()?;
         let captures = regex.captures(&self.content)?;
         let block_content = captures.get(1)?.as_str();
-        
+
         let mut providers = HashMap::new();
         let provider_pattern = r#"(\w+)\s*=\s*\{[^}]*version\s*=\s*"([^"]+)""#;
         let provider_regex = Regex::new(provider_pattern).ok()?;
-        
+
         for captures in provider_regex.captures_iter(block_content) {
             if let (Some(name), Some(version)) = (captures.get(1), captures.get(2)) {
                 providers.insert(
@@ -213,7 +212,7 @@ impl TerraformParser {
                 );
             }
         }
-        
+
         Some(providers)
     }
 }
@@ -236,7 +235,7 @@ resource "aws_s3_bucket" "data" {
 "#;
         let parser = TerraformParser::new(content.to_string());
         let resources = parser.parse_resources("test.tf");
-        
+
         assert_eq!(resources.len(), 2);
         assert_eq!(resources[0].resource_type, "aws_instance");
         assert_eq!(resources[0].name, "example");
@@ -266,7 +265,7 @@ variable "tags" {
 "#;
         let parser = TerraformParser::new(content.to_string());
         let variables = parser.parse_variables();
-        
+
         assert_eq!(variables.len(), 3);
         assert_eq!(variables[0].name, "region");
         assert_eq!(variables[0].description, Some("AWS region".to_string()));
@@ -290,10 +289,13 @@ output "bucket_arn" {
 "#;
         let parser = TerraformParser::new(content.to_string());
         let outputs = parser.parse_outputs();
-        
+
         assert_eq!(outputs.len(), 2);
         assert_eq!(outputs[0].name, "instance_ip");
-        assert_eq!(outputs[0].description, Some("Public IP of the instance".to_string()));
+        assert_eq!(
+            outputs[0].description,
+            Some("Public IP of the instance".to_string())
+        );
         assert_eq!(outputs[1].name, "bucket_arn");
         assert_eq!(outputs[1].description, None);
     }
@@ -325,13 +327,13 @@ provider "google" {
 "#;
         let parser = TerraformParser::new(content.to_string());
         let providers = parser.parse_providers();
-        
+
         assert!(providers.len() >= 2);
-        
+
         let aws_provider = providers.iter().find(|p| p.name == "aws");
         assert!(aws_provider.is_some());
         assert_eq!(aws_provider.unwrap().version, Some("~> 4.0".to_string()));
-        
+
         let google_provider = providers.iter().find(|p| p.name == "google");
         assert!(google_provider.is_some());
     }
