@@ -1,13 +1,13 @@
 [package]
 name = "tfmcp"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["nwiizo <syu.m.5151@gmail.com>"]
 description = "Terraform Model Context Protocol Tool - A CLI tool to manage Terraform through MCP"
 readme = "README.md"
 repository = "https://github.com/nwiizo/tfmcp"
 license = "MIT"
-keywords = ["terraform", "opentofu", "mcp", "llm", "ai", "claude"]
+keywords = ["terraform", "mcp", "llm", "ai", "claude"]
 categories = ["command-line-utilities", "development-tools"]
 build = "build.rs"
 rust-version = "1.78.0"
