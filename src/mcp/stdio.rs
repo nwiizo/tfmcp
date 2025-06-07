@@ -96,7 +96,6 @@ impl StdioTransport {
                 line.clear();
                 match reader.read_line(&mut line).await {
                     Ok(0) => {
-                        eprintln!("[DEBUG] EOF reached on stdin");
                         break;
                     }
                     Ok(_) => {
@@ -108,24 +107,14 @@ impl StdioTransport {
                             continue;
                         }
 
-                        // Debug log the received JSON
-                        eprintln!("[DEBUG] Received JSON: {}", trimmed_line);
-
                         // Use the helper function for more robust parsing
                         let parsed = parse_json_message(trimmed_line);
-
-                        // Log the send attempt
-                        eprintln!("[DEBUG] Attempting to send parsed message to channel");
                         
                         if sender_clone.send(parsed).is_err() {
-                            eprintln!("[ERROR] Failed to send parsed message to channel - receiver dropped");
                             break;
-                        } else {
-                            eprintln!("[DEBUG] Successfully sent message to channel");
                         }
                     }
                     Err(e) => {
-                        eprintln!("[ERROR] Error reading from stdin: {}", e);
                         let _ = sender_clone.send(Err(Error::Io(format!("Error reading from stdin: {}", e))));
                         break;
                     }
@@ -156,14 +145,6 @@ impl Transport for StdioTransport {
             }
         };
 
-        // Debug log the JSON being sent (truncated if very long)
-        let truncated_json = if json.len() > 500 {
-            format!("{}... (truncated)", &json[0..500])
-        } else {
-            json.clone()
-        };
-        eprintln!("[DEBUG] Sending JSON: {}", truncated_json);
-
         // Write the JSON string followed by a newline and flush
         if let Err(e) = writeln!(stdout, "{}", json) {
             return Err(Error::Io(format!("Failed to write to stdout: {}", e)));
@@ -178,22 +159,17 @@ impl Transport for StdioTransport {
 
     fn receive(&self) -> Pin<Box<dyn Stream<Item = Result<Message, Error>> + Send>> {
         let receiver = Arc::clone(&self.receiver);
-        eprintln!("[DEBUG] Created new receiver for message stream");
         
         Box::pin(futures::stream::unfold(receiver, |receiver| async move {
-            eprintln!("[DEBUG] Stream waiting for message...");
-            
             let mut rx_guard = receiver.lock().await;
             
             match rx_guard.recv().await {
                 Some(msg) => {
-                    eprintln!("[DEBUG] Stream received message successfully");
                     // Release the lock before returning
                     drop(rx_guard);
                     Some((msg, receiver))
                 },
                 None => {
-                    eprintln!("[DEBUG] Stream closed");
                     None
                 }
             }
@@ -207,46 +183,12 @@ impl Transport for StdioTransport {
 
 // Helper function to parse JSON messages with better error handling
 fn parse_json_message(json_string: &str) -> Result<Message, Error> {
-    // Basic validation for empty input
     if json_string.is_empty() {
         return Err(Error::Serialization("Empty JSON string".into()));
     }
 
-    // Try to fix common JSON issues
-    let mut processed_json = json_string.to_string();
-
-    // Remove problematic whitespace characters
-    processed_json = processed_json.replace(['\n', '\r', '\t'], " ");
-
-    // Handle unescaped backslashes and quotes if needed
-    if processed_json.contains("\\\\") || processed_json.contains("\\\"") {
-        processed_json = processed_json.replace("\\\\", "\\").replace("\\\"", "\"");
-    }
-
-    // Attempt parsing with modified string
-    let parse_result = serde_json::from_str::<Message>(&processed_json);
-
-    match parse_result {
+    match serde_json::from_str::<Message>(json_string) {
         Ok(msg) => Ok(msg),
-        Err(e) => {
-            eprintln!("[ERROR] JSON parse error: {}. Input: {}", e, processed_json);
-
-            // Provide additional diagnostics
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&processed_json) {
-                eprintln!("[DEBUG] JSON parsed as generic value: {:?}", value);
-            } else {
-                eprintln!("[ERROR] Could not parse JSON even as generic value");
-
-                // Try to fix more aggressively
-                if let Ok(msg) = serde_json::from_str::<Message>(
-                    "{\"jsonrpc\":\"2.0\",\"method\":\"unknown\",\"id\":0}}",
-                ) {
-                    eprintln!("[DEBUG] Returning fallback message");
-                    return Ok(msg);
-                }
-            }
-
-            Err(Error::Serialization(format!("JSON parse error: {}", e)))
-        }
+        Err(e) => Err(Error::Serialization(format!("JSON parse error: {}", e)))
     }
 }
