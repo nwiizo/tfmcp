@@ -12,6 +12,10 @@ categories = ["command-line-utilities", "development-tools"]
 build = "build.rs"
 rust-version = "1.78.0"
 
+[lib]
+name = "tfmcp"
+path = "src/lib.rs"
+
 [[bin]]
 name = "tfmcp"
 path = "src/main.rs"
@@ -35,6 +39,9 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 which = "6.0.1"
 chrono = { version = "0.4.35", features = ["serde"] }
+# Logging improvements
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 tempfile = "3.15.0"

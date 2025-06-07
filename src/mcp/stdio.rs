@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::{
     io::Write,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
-use tokio::sync::broadcast;
+use tokio::sync::{mpsc, Mutex};
 
 use tokio::io::AsyncBufReadExt;
 
@@ -74,16 +74,16 @@ pub trait Transport: Send + Sync {
 }
 
 pub struct StdioTransport {
-    stdout: Arc<Mutex<std::io::Stdout>>,
-    receiver: broadcast::Receiver<Result<Message, Error>>,
+    stdout: Arc<std::sync::Mutex<std::io::Stdout>>,
+    receiver: Arc<Mutex<mpsc::UnboundedReceiver<Result<Message, Error>>>>,
 }
 
 impl StdioTransport {
-    pub fn new() -> (Self, broadcast::Sender<Result<Message, Error>>) {
-        let (sender, receiver) = broadcast::channel(100);
+    pub fn new() -> (Self, mpsc::UnboundedSender<Result<Message, Error>>) {
+        let (sender, receiver) = mpsc::unbounded_channel();
         let transport = Self {
-            stdout: Arc::new(Mutex::new(std::io::stdout())),
-            receiver,
+            stdout: Arc::new(std::sync::Mutex::new(std::io::stdout())),
+            receiver: Arc::new(Mutex::new(receiver)),
         };
 
         let stdin = tokio::io::stdin();
@@ -95,10 +95,18 @@ impl StdioTransport {
             loop {
                 line.clear();
                 match reader.read_line(&mut line).await {
-                    Ok(0) => break,
+                    Ok(0) => {
+                        eprintln!("[DEBUG] EOF reached on stdin");
+                        break;
+                    }
                     Ok(_) => {
                         // Trim whitespace to avoid parsing issues
                         let trimmed_line = line.trim();
+
+                        // Skip empty lines
+                        if trimmed_line.is_empty() {
+                            continue;
+                        }
 
                         // Debug log the received JSON
                         eprintln!("[DEBUG] Received JSON: {}", trimmed_line);
@@ -106,15 +114,19 @@ impl StdioTransport {
                         // Use the helper function for more robust parsing
                         let parsed = parse_json_message(trimmed_line);
 
+                        // Log the send attempt
+                        eprintln!("[DEBUG] Attempting to send parsed message to channel");
+                        
                         if sender_clone.send(parsed).is_err() {
-                            eprintln!("[ERROR] Failed to send parsed message to channel");
+                            eprintln!("[ERROR] Failed to send parsed message to channel - receiver dropped");
                             break;
+                        } else {
+                            eprintln!("[DEBUG] Successfully sent message to channel");
                         }
                     }
                     Err(e) => {
                         eprintln!("[ERROR] Error reading from stdin: {}", e);
-                        let _ = sender_clone
-                            .send(Err(Error::Io(format!("Error reading from stdin: {}", e))));
+                        let _ = sender_clone.send(Err(Error::Io(format!("Error reading from stdin: {}", e))));
                         break;
                     }
                 }
@@ -165,11 +177,25 @@ impl Transport for StdioTransport {
     }
 
     fn receive(&self) -> Pin<Box<dyn Stream<Item = Result<Message, Error>> + Send>> {
-        let rx = self.receiver.resubscribe();
-        Box::pin(futures::stream::unfold(rx, |mut rx| async move {
-            match rx.recv().await {
-                Ok(msg) => Some((msg, rx)),
-                Err(_) => None,
+        let receiver = Arc::clone(&self.receiver);
+        eprintln!("[DEBUG] Created new receiver for message stream");
+        
+        Box::pin(futures::stream::unfold(receiver, |receiver| async move {
+            eprintln!("[DEBUG] Stream waiting for message...");
+            
+            let mut rx_guard = receiver.lock().await;
+            
+            match rx_guard.recv().await {
+                Some(msg) => {
+                    eprintln!("[DEBUG] Stream received message successfully");
+                    // Release the lock before returning
+                    drop(rx_guard);
+                    Some((msg, receiver))
+                },
+                None => {
+                    eprintln!("[DEBUG] Stream closed");
+                    None
+                }
             }
         }))
     }

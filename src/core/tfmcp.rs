@@ -257,7 +257,10 @@ resource "local_file" "example" {
     }
 
     pub async fn launch_mcp(&mut self) -> anyhow::Result<()> {
-        let (transport, _sender) = StdioTransport::new();
+        let (transport, sender) = StdioTransport::new();
+        
+        // Keep the sender alive to ensure the mpsc channel works
+        let _sender_guard = sender;
 
         // Log environment information
         let cwd = std::env::current_dir()?;

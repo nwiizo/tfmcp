@@ -9,6 +9,33 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
+echo "🔍 Running local CI checks before release..."
+
+# Check if we're on the main branch
+CURRENT_BRANCH=$(git branch --show-current)
+if [ "$CURRENT_BRANCH" != "main" ]; then
+    echo "⚠️  Warning: You are not on the main branch (current: $CURRENT_BRANCH)"
+    read -p "Continue anyway? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+fi
+
+# Check for uncommitted changes
+if [ -n "$(git status --porcelain)" ]; then
+    echo "❌ Error: There are uncommitted changes. Please commit or stash them first."
+    git status --short
+    exit 1
+fi
+
+# Check if we can reach crates.io
+echo "🌐 Checking crates.io connectivity..."
+if ! curl -s --max-time 10 https://crates.io >/dev/null; then
+    echo "❌ Error: Cannot reach crates.io. Please check your internet connection."
+    exit 1
+fi
+
 # 前回のタグを取得
 LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
@@ -49,25 +76,68 @@ fi
 # mac os では
 sed -i '' "s/^version = .*/version = \"${VERSION#v}\"/" Cargo.toml
 
-# cargo fmt を実行してフォーマットを整える
-cargo fmt || exit 1
+# Run comprehensive CI checks locally
+echo "🔧 Running formatting check..."
+cargo fmt --check || {
+    echo "❌ Code formatting issues found. Running cargo fmt to fix..."
+    cargo fmt || exit 1
+    echo "✅ Code formatted. Please review changes and commit them."
+    exit 1
+}
+echo "✅ Code formatting is correct"
 
-# cargo clippyを実行してコードをチェック
-cargo clippy --all-targets --all-features -- -D warnings || exit 1
+echo "🔍 Running clippy linting..."
+cargo clippy --all-targets --all-features -- -D warnings || {
+    echo "❌ Clippy linting failed. Please fix the issues above."
+    exit 1
+}
+echo "✅ Clippy linting passed"
+
+echo "🧪 Running unit tests..."
+cargo test || {
+    echo "❌ Tests failed. Please fix the failing tests."
+    exit 1
+}
+echo "✅ All tests passed"
+
+echo "🔨 Running release build check..."
+cargo build --release || {
+    echo "❌ Release build failed. Please fix the build issues."
+    exit 1
+}
+echo "✅ Release build successful"
+
+echo "📋 Checking for security advisories..."
+if command -v cargo-audit >/dev/null 2>&1; then
+    cargo audit || {
+        echo "⚠️  Security advisories found. Please review and address them."
+        read -p "Continue anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    }
+    echo "✅ Security audit passed"
+else
+    echo "⚠️  cargo-audit not installed. Skipping security audit."
+    echo "   Install with: cargo install cargo-audit"
+fi
 
 # cargo updateを実行してCargo.lockを更新
+echo "📦 Updating dependencies..."
 cargo update || exit 1
 
 # 変更をコミット
 git add Cargo.toml Cargo.lock
 git commit -m "chore: bump version to $VERSION"
 
-# ビルドとテストを実行
-cargo build --release || exit 1
-cargo test || exit 1
-
-# Cargoのタグを作成
-cargo package --allow-dirty || exit 1
+# Cargoのパッケージを作成（dry-run で検証）
+echo "📦 Creating Cargo package..."
+cargo package --allow-dirty || {
+    echo "❌ Package creation failed. Please fix the issues above."
+    exit 1
+}
+echo "✅ Package created successfully"
 
 # リリースノートを生成
 RELEASE_NOTES=$(generate_release_notes "$LAST_TAG")
@@ -93,9 +163,18 @@ cargo publish --allow-dirty || {
 git push origin main
 git push origin "$VERSION"
 
-echo "Successfully:"
-echo "- Updated version to $VERSION"
-echo "- Created GitHub release with auto-generated notes"
-echo "- Published to crates.io"
-echo "- Pushed tags to origin"
+echo "🎉 Release $VERSION completed successfully!"
+echo ""
+echo "✅ Summary of actions performed:"
+echo "  - ✓ Ran all local CI checks (format, lint, test, build, security)"
+echo "  - ✓ Updated version to $VERSION in Cargo.toml"
+echo "  - ✓ Updated dependencies in Cargo.lock"
+echo "  - ✓ Created commit with version bump"
+echo "  - ✓ Created GitHub release with auto-generated notes"
+echo "  - ✓ Published to crates.io"
+echo "  - ✓ Pushed tags to origin"
+echo ""
+echo "🔗 Next steps:"
+echo "  - Review the GitHub release at: https://github.com/nwiizo/tfmcp/releases/tag/$VERSION"
+echo "  - Check the crates.io publication at: https://crates.io/crates/tfmcp"
 

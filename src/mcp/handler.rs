@@ -1,5 +1,7 @@
 use crate::core::tfmcp::{JsonRpcErrorCode, TfMcp};
 use crate::mcp::stdio::{Message, StdioTransport, Transport};
+use crate::registry::fallback::RegistryClientWithFallback;
+use crate::registry::provider::ProviderResolver;
 use crate::shared::logging;
 use futures::StreamExt;
 use serde_json::{json, Value};
@@ -309,6 +311,111 @@ const TOOLS_JSON: &str = r#"{
       }
     },
     {
+      "name": "search_terraform_providers",
+      "description": "Search for Terraform providers in the official registry",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query for provider names"
+          }
+        },
+        "required": ["query"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "namespace": { "type": "string" },
+                "version": { "type": "string" },
+                "description": { "type": "string" }
+              }
+            }
+          }
+        },
+        "required": ["providers"]
+      }
+    },
+    {
+      "name": "get_provider_info",
+      "description": "Get detailed information about a specific Terraform provider",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "provider_name": {
+            "type": "string",
+            "description": "Name of the provider"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Provider namespace (optional, will try common namespaces)"
+          }
+        },
+        "required": ["provider_name"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "object",
+            "description": "Provider information including versions and documentation"
+          }
+        },
+        "required": ["provider"]
+      }
+    },
+    {
+      "name": "get_provider_docs",
+      "description": "Get documentation for specific provider resources",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "provider_name": {
+            "type": "string",
+            "description": "Name of the provider"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Provider namespace (optional)"
+          },
+          "service_slug": {
+            "type": "string",
+            "description": "Service or resource name to search for"
+          },
+          "data_type": {
+            "type": "string",
+            "description": "Type of documentation (resources, data-sources)",
+            "enum": ["resources", "data-sources"]
+          }
+        },
+        "required": ["provider_name", "service_slug"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "documentation": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "title": { "type": "string" },
+                "description": { "type": "string" },
+                "content": { "type": "string" }
+              }
+            }
+          }
+        },
+        "required": ["documentation"]
+      }
+    },
+    {
       "name": "set_terraform_directory",
       "description": "Change the current Terraform project directory",
       "inputSchema": {
@@ -346,6 +453,8 @@ const TOOLS_JSON: &str = r#"{
 pub struct McpHandler<'a> {
     tfmcp: &'a mut TfMcp,
     initialized: bool,
+    registry_client: RegistryClientWithFallback,
+    provider_resolver: ProviderResolver,
 }
 
 impl<'a> McpHandler<'a> {
@@ -353,13 +462,20 @@ impl<'a> McpHandler<'a> {
         Self {
             tfmcp,
             initialized: false,
+            registry_client: RegistryClientWithFallback::new(),
+            provider_resolver: ProviderResolver::new(),
         }
     }
 
     pub async fn launch_mcp(&mut self, transport: &StdioTransport) -> anyhow::Result<()> {
-        let mut stream = transport.receive();
-
         logging::info("MCP stdio transport server started. Waiting for JSON messages on stdin...");
+        
+        // Create the stream receiver first, before sending any log messages
+        let mut stream = transport.receive();
+        
+        // Add a small delay to ensure the receiver is ready
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        
         logging::send_log_message(
             transport,
             logging::LogLevel::Info,
@@ -367,7 +483,22 @@ impl<'a> McpHandler<'a> {
         )
         .await?;
 
+        // Add debug logging for stream creation
+        logging::debug("Created message stream, starting to listen for messages...");
+
         while let Some(msg_result) = stream.next().await {
+            logging::debug("Stream received a message, processing...");
+            
+            // Debug: Log what type of message we received
+            match &msg_result {
+                Ok(msg) => {
+                    logging::debug(&format!("Received message type: {:?}", std::any::type_name_of_val(msg)));
+                }
+                Err(e) => {
+                    logging::debug(&format!("Received error: {:?}", e));
+                }
+            }
+            
             match msg_result {
                 Ok(Message::Request {
                     id, method, params, ..
@@ -386,8 +517,17 @@ impl<'a> McpHandler<'a> {
                     if method == "initialize" {
                         if let Err(err) = self.handle_initialize(transport, id).await {
                             logging::error(&format!("Error handling initialize request: {}", err));
+                            self.send_error_response(
+                                transport,
+                                id,
+                                JsonRpcErrorCode::InternalError,
+                                format!("Failed to initialize: {}", err),
+                            )
+                            .await?;
+                        } else {
+                            self.initialized = true;
+                            logging::info("MCP server successfully initialized");
                         }
-                        self.initialized = true;
                         continue;
                     }
 
@@ -403,15 +543,18 @@ impl<'a> McpHandler<'a> {
                         continue;
                     }
 
-                    if let Err(err) = self.handle_request(transport, id, method, params).await {
-                        logging::error(&format!("Error handling request: {:?}", err));
-                        self.send_error_response(
-                            transport,
-                            id,
-                            JsonRpcErrorCode::InternalError,
-                            format!("Failed to handle request: {}", err),
-                        )
-                        .await?;
+                    // Skip calling handle_request for methods already handled above
+                    if method != "initialize" {
+                        if let Err(err) = self.handle_request(transport, id, method, params).await {
+                            logging::error(&format!("Error handling request: {:?}", err));
+                            self.send_error_response(
+                                transport,
+                                id,
+                                JsonRpcErrorCode::InternalError,
+                                format!("Failed to handle request: {}", err),
+                            )
+                            .await?;
+                        }
                     }
                 }
                 Ok(Message::Notification { method, params, .. }) => {
@@ -452,7 +595,6 @@ impl<'a> McpHandler<'a> {
         params: Option<serde_json::Value>,
     ) -> anyhow::Result<()> {
         match &*method {
-            "initialize" => self.handle_initialize(transport, id).await?,
             "tools/list" => self.handle_tools_list(transport, id).await?,
             "tools/call" => {
                 if let Some(params_val) = params {
@@ -581,6 +723,18 @@ impl<'a> McpHandler<'a> {
             }
             "get_security_status" => {
                 self.handle_get_security_status(transport, id).await?;
+            }
+            "search_terraform_providers" => {
+                self.handle_search_terraform_providers(transport, id, &params_val)
+                    .await?;
+            }
+            "get_provider_info" => {
+                self.handle_get_provider_info(transport, id, &params_val)
+                    .await?;
+            }
+            "get_provider_docs" => {
+                self.handle_get_provider_docs(transport, id, &params_val)
+                    .await?;
             }
             _ => {
                 self.send_error_response(
@@ -979,7 +1133,7 @@ impl<'a> McpHandler<'a> {
         logging::info("Handling set_terraform_directory request");
 
         // パラメータから新しいディレクトリパスを取得
-        let directory = match params_val.get("directory").and_then(|v| v.as_str()) {
+        let directory = match params_val.pointer("/arguments/directory").and_then(|v| v.as_str()) {
             Some(dir) => dir.to_string(),
             None => {
                 return self
@@ -1115,6 +1269,210 @@ impl<'a> McpHandler<'a> {
 
         let obj_as_str = serde_json::to_string(&security_info)?;
         self.send_text_response(transport, id, &obj_as_str).await?;
+        Ok(())
+    }
+
+    // Registry-related handlers
+    async fn handle_search_terraform_providers(
+        &self,
+        transport: &StdioTransport,
+        id: u64,
+        params_val: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let query = match params_val.pointer("/arguments/query").and_then(|v| v.as_str()) {
+            Some(q) => q,
+            None => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        "Missing required parameter: query".to_string(),
+                    )
+                    .await;
+            }
+        };
+
+        match self.provider_resolver.search_providers(query).await {
+            Ok(providers) => {
+                let result_json = json!({ "providers": providers });
+                let obj_as_str = serde_json::to_string(&result_json)?;
+                self.send_text_response(transport, id, &obj_as_str).await?;
+            }
+            Err(err) => {
+                self.send_error_response(
+                    transport,
+                    id,
+                    JsonRpcErrorCode::InternalError,
+                    format!("Failed to search providers: {}", err),
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_get_provider_info(
+        &self,
+        transport: &StdioTransport,
+        id: u64,
+        params_val: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let provider_name = match params_val.pointer("/arguments/provider_name").and_then(|v| v.as_str()) {
+            Some(name) => name,
+            None => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        "Missing required parameter: provider_name".to_string(),
+                    )
+                    .await;
+            }
+        };
+
+        let namespace = params_val.pointer("/arguments/namespace").and_then(|v| v.as_str());
+
+        match self.registry_client.get_provider_info(provider_name, namespace).await {
+            Ok(provider_info) => {
+                // Also get versions for comprehensive information
+                match self.registry_client.get_provider_version(provider_name, namespace).await {
+                    Ok((version, used_namespace)) => {
+                        let result_json = json!({
+                            "provider": {
+                                "name": provider_info.name,
+                                "namespace": used_namespace,
+                                "latest_version": version,
+                                "description": provider_info.description,
+                                "downloads": provider_info.downloads,
+                                "published_at": provider_info.published_at,
+                                "info": provider_info
+                            }
+                        });
+                        let obj_as_str = serde_json::to_string(&result_json)?;
+                        self.send_text_response(transport, id, &obj_as_str).await?;
+                    }
+                    Err(err) => {
+                        // Return basic info even if version lookup fails
+                        let result_json = json!({
+                            "provider": {
+                                "info": provider_info,
+                                "version_error": err.to_string()
+                            }
+                        });
+                        let obj_as_str = serde_json::to_string(&result_json)?;
+                        self.send_text_response(transport, id, &obj_as_str).await?;
+                    }
+                }
+            }
+            Err(err) => {
+                self.send_error_response(
+                    transport,
+                    id,
+                    JsonRpcErrorCode::InternalError,
+                    format!("Failed to get provider info: {}", err),
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_get_provider_docs(
+        &self,
+        transport: &StdioTransport,
+        id: u64,
+        params_val: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let provider_name = match params_val.pointer("/arguments/provider_name").and_then(|v| v.as_str()) {
+            Some(name) => name,
+            None => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        "Missing required parameter: provider_name".to_string(),
+                    )
+                    .await;
+            }
+        };
+
+        let service_slug = match params_val.pointer("/arguments/service_slug").and_then(|v| v.as_str()) {
+            Some(slug) => slug,
+            None => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        "Missing required parameter: service_slug".to_string(),
+                    )
+                    .await;
+            }
+        };
+
+        let namespace = params_val.pointer("/arguments/namespace").and_then(|v| v.as_str());
+        let data_type = params_val.pointer("/arguments/data_type").and_then(|v| v.as_str()).unwrap_or("resources");
+
+        match self.registry_client.search_docs_with_fallback(
+            provider_name,
+            namespace,
+            service_slug,
+            data_type,
+        ).await {
+            Ok((doc_ids, used_namespace)) => {
+                // Fetch content for each documentation ID
+                let mut documentation = Vec::new();
+                
+                for doc_id in doc_ids {
+                    match self.provider_resolver.get_provider_docs(&doc_id.id).await {
+                        Ok(content) => {
+                            documentation.push(json!({
+                                "id": doc_id.id,
+                                "title": doc_id.title,
+                                "description": doc_id.description,
+                                "category": doc_id.category,
+                                "content": content
+                            }));
+                        }
+                        Err(err) => {
+                            // Include the doc entry even if content fetch fails
+                            documentation.push(json!({
+                                "id": doc_id.id,
+                                "title": doc_id.title,
+                                "description": doc_id.description,
+                                "category": doc_id.category,
+                                "content_error": err.to_string()
+                            }));
+                        }
+                    }
+                }
+
+                let result_json = json!({
+                    "documentation": documentation,
+                    "namespace": used_namespace,
+                    "provider": provider_name,
+                    "service": service_slug,
+                    "type": data_type
+                });
+                let obj_as_str = serde_json::to_string(&result_json)?;
+                self.send_text_response(transport, id, &obj_as_str).await?;
+            }
+            Err(err) => {
+                self.send_error_response(
+                    transport,
+                    id,
+                    JsonRpcErrorCode::InternalError,
+                    format!("Failed to get provider documentation: {}", err),
+                )
+                .await?;
+            }
+        }
+
         Ok(())
     }
 }

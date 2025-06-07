@@ -1,12 +1,16 @@
 mod config;
 mod core;
+mod formatters;
 mod mcp;
+mod prompts;
+mod registry;
 mod shared;
 mod terraform;
 
 use clap::{arg, command, Parser, Subcommand};
 use core::tfmcp::TfMcp;
 use shared::logging;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -52,6 +56,9 @@ enum Commands {
 
 #[tokio::main]
 async fn main() {
+    // Initialize tracing/logging
+    init_logging();
+    
     let cli = Cli::parse();
 
     if cli.version {
@@ -108,4 +115,27 @@ async fn init_tfmcp(cli: &Cli) -> anyhow::Result<TfMcp> {
         config_path, dir_path
     ));
     TfMcp::new(config_path, dir_path)
+}
+
+fn init_logging() {
+    let log_level = std::env::var("TFMCP_LOG_LEVEL")
+        .unwrap_or_else(|_| "info".to_string())
+        .to_lowercase();
+    
+    let filter = match log_level.as_str() {
+        "trace" => "trace",
+        "debug" => "debug",
+        "info" => "info",
+        "warn" | "warning" => "warn", 
+        "error" => "error",
+        _ => "info",
+    };
+
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| format!("tfmcp={},reqwest=warn,hyper=warn", filter).into())
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 }
