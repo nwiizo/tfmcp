@@ -20,6 +20,14 @@ fn create_test_provider(name: &str, namespace: &str) -> ProviderInfo {
         downloads: 1000,
         published_at: "2023-01-01".to_string(),
         id: format!("{}/{}", namespace, name),
+        source: None,
+        tag: None,
+        logo_url: None,
+        owner: None,
+        tier: None,
+        verified: None,
+        trusted: None,
+        extra: std::collections::HashMap::new(),
     }
 }
 

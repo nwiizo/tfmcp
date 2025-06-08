@@ -292,6 +292,14 @@ mod tests {
             downloads: 1000000,
             published_at: "2023-01-01".to_string(),
             id: "hashicorp/aws".to_string(),
+            source: None,
+            tag: None,
+            logo_url: None,
+            owner: None,
+            tier: None,
+            verified: None,
+            trusted: None,
+            extra: std::collections::HashMap::new(),
         }];
 
         let formatted = OutputFormatter::format_provider_list(providers);

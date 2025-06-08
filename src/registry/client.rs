@@ -53,7 +53,7 @@ impl From<serde_json::Error> for RegistryError {
 }
 
 // Flexible provider info structure that can handle multiple API versions
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderInfo {
     pub name: String,
     pub namespace: String,
@@ -87,27 +87,6 @@ pub struct ProviderInfo {
     pub extra: HashMap<String, Value>,
 }
 
-impl Default for ProviderInfo {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            namespace: String::new(),
-            version: String::new(),
-            description: String::new(),
-            downloads: 0,
-            published_at: String::new(),
-            id: String::new(),
-            source: None,
-            tag: None,
-            logo_url: None,
-            owner: None,
-            tier: None,
-            verified: None,
-            trusted: None,
-            extra: HashMap::new(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocIdResult {
@@ -363,23 +342,24 @@ impl RegistryClient {
                         error!("Parsed JSON was: {}", serde_json::to_string_pretty(&json_value).unwrap_or_else(|_| "Invalid JSON".to_string()));
                         
                         // Try to extract essential fields manually
-                        let mut provider_info = ProviderInfo::default();
-                        provider_info.name = json_value.get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or(provider_name)
-                            .to_string();
-                        provider_info.namespace = json_value.get("namespace")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or(namespace)
-                            .to_string();
-                        
-                        if let Some(desc) = json_value.get("description").and_then(|v| v.as_str()) {
-                            provider_info.description = desc.to_string();
-                        }
-                        
-                        if let Some(downloads) = json_value.get("downloads").and_then(|v| v.as_u64()) {
-                            provider_info.downloads = downloads;
-                        }
+                        let provider_info = ProviderInfo {
+                            name: json_value.get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(provider_name)
+                                .to_string(),
+                            namespace: json_value.get("namespace")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(namespace)
+                                .to_string(),
+                            description: json_value.get("description")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            downloads: json_value.get("downloads")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0),
+                            ..Default::default()
+                        };
                         
                         warn!("Using fallback provider info parsing due to deserialization error");
                         Ok(provider_info)
@@ -501,14 +481,14 @@ impl RegistryClient {
                namespace, provider_name, service_slug, data_type);
 
         // Try multiple URL patterns as the API endpoint may vary
-        let url_patterns = vec![
+        let url_patterns = [
             format!("{}/v1/providers/{}/{}/docs", self.base_url, namespace, provider_name),
             format!("{}/v2/providers/{}/{}/docs", self.base_url, namespace, provider_name),
             format!("{}/providers/{}/{}/docs", self.base_url, namespace, provider_name),
             format!("{}/docs/providers/{}/{}", self.base_url, namespace, provider_name),
         ];
 
-        let query_params = vec![
+        let query_params = [
             vec![("category", data_type), ("slug", service_slug)],
             vec![("type", data_type), ("slug", service_slug)],
             vec![("filter[category]", data_type), ("filter[slug]", service_slug)],
@@ -516,7 +496,7 @@ impl RegistryClient {
         ];
 
         for (url_idx, url) in url_patterns.iter().enumerate() {
-            for (_param_idx, params) in query_params.iter().enumerate() {
+            for params in query_params.iter() {
                 debug!("Trying URL pattern {}/{}: {} with params: {:?}", 
                        url_idx + 1, url_patterns.len(), url, params);
 
@@ -640,7 +620,7 @@ impl RegistryClient {
         debug!("Fetching documentation content for ID: {}", doc_id);
 
         // Try multiple URL patterns for documentation content
-        let url_patterns = vec![
+        let url_patterns = [
             format!("{}/v1/docs/{}", self.base_url, doc_id),
             format!("{}/v2/docs/{}", self.base_url, doc_id),
             format!("{}/docs/{}", self.base_url, doc_id),
