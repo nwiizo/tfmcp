@@ -33,7 +33,6 @@ resource "local_file" "test" {
     Ok(temp_dir)
 }
 
-
 #[tokio::test]
 async fn test_mcp_initialize_response() -> Result<()> {
     // Setup test environment

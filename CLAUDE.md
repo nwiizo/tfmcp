@@ -16,9 +16,6 @@ cargo fmt --all
 # Lint with warnings as errors (same as CI)
 RUSTFLAGS="-Dwarnings" cargo clippy --all-targets --all-features
 
-# Check formatting matches CI expectations
-cargo fmt --all -- --check
-
 # Run tests with locked dependencies like CI
 cargo test --locked --all-features --verbose
 
@@ -31,18 +28,6 @@ cargo install --path .
 # Install from crates.io
 cargo install tfmcp
 ```
-
-### CI/CD Quality Standards
-
-**CRITICAL: All CI checks must pass before merging**
-
-Our CI pipeline enforces strict quality standards:
-- `RUSTFLAGS="-Dwarnings"` - All warnings are treated as errors
-- `cargo fmt --all -- --check` - Code formatting must be perfect
-- `cargo clippy --all-targets --all-features -- -D warnings` - No clippy warnings allowed
-- `cargo test --locked --all-features --verbose` - All tests must pass
-- Security audit with `cargo audit`
-- Cross-platform testing (Ubuntu, Windows, macOS)
 
 ### Pre-Commit Quality Checks
 
@@ -62,33 +47,24 @@ cargo test --locked --all-features
 cargo fmt --all -- --check
 ```
 
-If any of these fail, **DO NOT COMMIT** until fixed.
+**If any of these fail, DO NOT COMMIT until fixed.**
 
-### Docker Operations
-```bash
-# Build Docker image
-docker build -t tfmcp .
+### CI/CD Quality Standards
 
-# Run in container
-docker run -it tfmcp
-
-# Run with mounted Terraform project
-docker run -it -v /path/to/terraform:/app/terraform tfmcp --dir /app/terraform
-```
-
-### Project-Specific Scripts
-```bash
-# Build Cursor IDE rules (when editing documentation)
-npm install  # first time only
-npm run build:mdc
-```
+Our CI pipeline enforces strict quality standards:
+- `RUSTFLAGS="-Dwarnings"` - All warnings are treated as errors
+- `cargo fmt --all -- --check` - Code formatting must be perfect
+- `cargo clippy --all-targets --all-features -- -D warnings` - No clippy warnings allowed
+- `cargo test --locked --all-features --verbose` - All tests must pass
+- Security audit with `cargo audit`
+- Cross-platform testing (Ubuntu, Windows, macOS)
 
 ## Architecture Overview
 
 ### Core Components
 
 1. **Core Module** (`src/core/`): Central tfmcp functionality
-   - `tfmcp.rs`: Main application logic, project initialization, and Terraform service orchestration
+   - `tfmcp.rs`: Main application logic and Terraform service orchestration
 
 2. **MCP Module** (`src/mcp/`): Model Context Protocol implementation
    - `handler.rs`: MCP message handling and tool implementations
@@ -99,18 +75,18 @@ npm run build:mdc
    - `model.rs`: Data structures for Terraform responses and analysis
    - `parser.rs`: Parsing Terraform output and configurations
 
-4. **Registry Module** (`src/registry/`): **NEW** - Terraform Registry API integration
+4. **Registry Module** (`src/registry/`): Terraform Registry API integration
    - `client.rs`: HTTP client for Terraform Registry API
-   - `provider.rs`: Staged information retrieval and provider resolution
+   - `provider.rs`: Provider resolution and information retrieval
    - `fallback.rs`: Intelligent namespace fallback (hashicorp→terraform-providers→community)
    - `batch.rs`: High-performance parallel processing
    - `cache.rs`: TTL-based intelligent caching system
 
-5. **Prompts Module** (`src/prompts/`): **NEW** - Enhanced prompt system
+5. **Prompts Module** (`src/prompts/`): Enhanced prompt system
    - `builder.rs`: Structured tool descriptions with usage guides
    - `descriptions.rs`: Comprehensive tool documentation and examples
 
-6. **Formatters Module** (`src/formatters/`): **NEW** - Structured output formatting
+6. **Formatters Module** (`src/formatters/`): Structured output formatting
    - `output.rs`: HashiCorp-style structured results and error messages
 
 7. **Config Module** (`src/config/`): Configuration management
@@ -121,26 +97,16 @@ npm run build:mdc
    - `security.rs`: Security controls and validation
    - `utils/`: Helper functions for path handling
 
-### Key Architectural Patterns
+### Key Features
 
 - **Async-First Design**: Uses `tokio` runtime for all I/O operations
-- **Staged Information Retrieval**: HashiCorp-style ID resolution → detailed fetching
 - **Intelligent Caching**: TTL-based cache system with 60%+ hit rates
 - **Parallel Processing**: Concurrent API calls with controlled concurrency (up to 8 parallel)
 - **Fallback Strategy**: Multi-namespace provider resolution with automatic retries
-- **Error Propagation**: Comprehensive error handling with `anyhow` and `thiserror`
 - **Security by Default**: Operations like apply/destroy are disabled unless explicitly enabled
 - **Auto-Bootstrap**: Creates sample Terraform projects when none exist
 
-### Performance Features
-
-- **Registry API Integration**: Direct integration with Terraform Registry for provider information
-- **Batch Operations**: High-performance parallel fetching of multiple providers/versions
-- **Smart Caching**: Individual caches for providers (10min), documentation (30min), versions (5min)
-- **Namespace Fallback**: Automatic search across hashicorp → terraform-providers → community
-- **Structured Output**: HashiCorp-quality formatted results with usage examples
-
-## Important Configuration
+## Configuration
 
 ### Environment Variables
 - `TERRAFORM_DIR`: Override default project directory
@@ -155,7 +121,7 @@ npm run build:mdc
 - Resource count limits and access controls
 - Dangerous operations disabled by default
 
-## Claude Desktop Integration
+### Claude Desktop Integration
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
@@ -199,7 +165,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
    - ✅ **REQUIRED**: Prefix test variables with `_` if intentionally unused
    - ✅ **REQUIRED**: Use `#[allow(dead_code)]` only for legitimate infrastructure code
 
-### Code Style (from rules/rust/)
+### Code Style
 - Follow `rustfmt` formatting (run `cargo fmt --all` before commits)
 - Maximum line length: 100 characters
 - Use `Result`/`Option` types appropriately
@@ -220,47 +186,30 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 - Use `tempfile` for file system tests
 - **NO MOCK FRAMEWORKS** - Use real implementations only
 
-### New Module Guidelines
+## Docker Operations
+```bash
+# Build Docker image
+docker build -t tfmcp .
 
-**Registry Module Development:**
-- Always implement caching for external API calls
-- Use batch operations for multiple related requests
-- Implement intelligent fallback for provider resolution
-- Structure responses using `OutputFormatter` for consistency
+# Run in container
+docker run -it tfmcp
 
-**Prompt System Development:**
-- Use `ToolDescription` builder for all new tools
-- Include usage guides, constraints, and security notes
-- Provide practical examples with expected outputs
-- Follow HashiCorp documentation standards
+# Run with mounted Terraform project
+docker run -it -v /path/to/terraform:/app/terraform tfmcp --dir /app/terraform
+```
 
-**Performance Considerations:**
-- Leverage `BatchFetcher` for multiple API calls
-- Configure appropriate cache TTLs based on data volatility
-- Use structured logging for performance monitoring
-- Implement rate limiting respect for external APIs
-
-## Project Structure Logic
-
-### Directory Resolution Priority
+## Directory Resolution Priority
 1. Command line `--dir` argument
 2. `TERRAFORM_DIR` environment variable  
 3. Configuration file setting
 4. Current working directory
 5. Fallback to `~/terraform` (with auto-creation)
 
-### Automatic Project Bootstrap
-When no `.tf` files are found, tfmcp automatically creates a sample project with:
-- `main.tf`: Basic local provider configuration
-- `example.txt`: Sample resource output
-
-This ensures the MCP server can always start and provide a working environment for AI assistants.
-
 ## Release Process
 
 1. Update version in `Cargo.toml`
-2. Run tests: `cargo test`
-3. Build and test: `cargo build --release`
+2. Run tests: `cargo test --locked --all-features`
+3. Build and test: `cargo build --release --locked --all-features`
 4. Create release with `./Release.sh`
 5. Publish to crates.io: `cargo publish`
 
