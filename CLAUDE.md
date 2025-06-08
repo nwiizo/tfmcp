@@ -221,6 +221,86 @@ docker run -it -v /path/to/terraform:/app/terraform tfmcp --dir /app/terraform
 
 Use `TFMCP_LOG_LEVEL=debug` for detailed debugging output.
 
+## CI/CD Pipeline Lessons Learned
+
+### GitHub Actions Environment Detection (Fixed - June 8, 2025)
+
+**Problem**: MCP integration tests were failing in CI because they couldn't detect the CI environment properly and were trying to create TfMcp instances that required Terraform binary.
+
+**Root Cause**: The `is_ci_environment()` function wasn't detecting all GitHub Actions environment variables, and the main check job didn't have Terraform installed.
+
+**Solution**: 
+1. Enhanced CI environment detection with multiple GitHub Actions variables
+2. Added Terraform installation to the main check job 
+3. Added fallback detection using terraform binary availability
+
+**Files Modified**:
+- `.github/workflows/rust.yml`: Added Terraform installation to check job
+- `tests/mcp_integration.rs`: Enhanced CI detection function
+
+**Testing Commands**:
+```bash
+# Test CI detection locally
+echo $CI $GITHUB_ACTIONS $GITHUB_WORKFLOW
+which terraform || echo "terraform not found"
+
+# Run tests locally with and without terraform
+cargo test --test mcp_integration
+```
+
+### Security Audit Compatibility Issues (June 8, 2025)
+
+**Problem**: `cargo-audit` installation failing in CI due to dependency on `cvss v2.1.0` requiring unstable `edition2024` feature not available in stable Rust 1.84.0.
+
+**Root Cause**: Recent versions of `cargo-audit` (v0.21.2+) depend on crates that require Rust 1.85+ features not yet stable.
+
+**Temporary Solution**: 
+1. Disabled automatic security audit in CI with clear documentation
+2. Added manual security review requirement 
+3. Documented the issue for future resolution
+
+**Files Modified**:
+- `.github/workflows/rust.yml`: Replaced failing cargo-audit with temporary placeholder
+
+**Manual Security Audit**:
+```bash
+# Run locally with working cargo-audit installation
+cargo audit
+
+# Alternative: Check dependencies manually
+cargo tree
+cargo outdated
+```
+
+**Future Resolution**: Re-enable when `cargo-audit` supports stable Rust again or when Rust 1.85 becomes stable.
+
+### CI/CD Best Practices
+
+**Environment-Specific Testing**:
+- Always implement CI environment detection for tests that require external dependencies
+- Provide fallback behavior for missing tools in CI
+- Use different test strategies for CI vs local development
+
+**Dependency Management**:
+- Pin versions of CI tools to avoid breaking changes
+- Use `--locked` flag for reproducible builds
+- Monitor dependency updates for compatibility issues
+
+**Rust-Specific CI Patterns**:
+```bash
+# Standard Rust CI workflow
+cargo fmt --all -- --check           # Formatting check
+cargo clippy --all-targets -- -D warnings  # Linting with warnings as errors
+cargo test --locked --all-features   # Testing with locked dependencies
+cargo build --release --locked       # Release build verification
+```
+
+**Quality Gates**:
+- All warnings treated as errors (`RUSTFLAGS="-Dwarnings"`)
+- Cross-platform testing (Ubuntu, Windows, macOS)
+- Security auditing (when toolchain compatible)
+- Code coverage reporting
+
 ## Known Issues and Solutions
 
 ### MCP Connection Issues (Fixed - June 7, 2025)
