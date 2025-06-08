@@ -1,11 +1,7 @@
 use async_trait::async_trait;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
-use std::{
-    io::Write,
-    pin::Pin,
-    sync::Arc,
-};
+use std::{io::Write, pin::Pin, sync::Arc};
 use tokio::sync::{mpsc, Mutex};
 
 use tokio::io::AsyncBufReadExt;
@@ -109,13 +105,14 @@ impl StdioTransport {
 
                         // Use the helper function for more robust parsing
                         let parsed = parse_json_message(trimmed_line);
-                        
+
                         if sender_clone.send(parsed).is_err() {
                             break;
                         }
                     }
                     Err(e) => {
-                        let _ = sender_clone.send(Err(Error::Io(format!("Error reading from stdin: {}", e))));
+                        let _ = sender_clone
+                            .send(Err(Error::Io(format!("Error reading from stdin: {}", e))));
                         break;
                     }
                 }
@@ -159,19 +156,17 @@ impl Transport for StdioTransport {
 
     fn receive(&self) -> Pin<Box<dyn Stream<Item = Result<Message, Error>> + Send>> {
         let receiver = Arc::clone(&self.receiver);
-        
+
         Box::pin(futures::stream::unfold(receiver, |receiver| async move {
             let mut rx_guard = receiver.lock().await;
-            
+
             match rx_guard.recv().await {
                 Some(msg) => {
                     // Release the lock before returning
                     drop(rx_guard);
                     Some((msg, receiver))
-                },
-                None => {
-                    None
                 }
+                None => None,
             }
         }))
     }
@@ -189,6 +184,6 @@ fn parse_json_message(json_string: &str) -> Result<Message, Error> {
 
     match serde_json::from_str::<Message>(json_string) {
         Ok(msg) => Ok(msg),
-        Err(e) => Err(Error::Serialization(format!("JSON parse error: {}", e)))
+        Err(e) => Err(Error::Serialization(format!("JSON parse error: {}", e))),
     }
 }

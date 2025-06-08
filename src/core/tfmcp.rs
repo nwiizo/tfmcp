@@ -258,7 +258,7 @@ resource "local_file" "example" {
 
     pub async fn launch_mcp(&mut self) -> anyhow::Result<()> {
         let (transport, sender) = StdioTransport::new();
-        
+
         // Keep the sender alive to ensure the mpsc channel works
         let _sender_guard = sender;
 

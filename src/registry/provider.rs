@@ -27,8 +27,11 @@ impl ProviderResolver {
         service_slug: &str,
         data_type: Option<&str>,
     ) -> Result<Vec<DocIdResult>, RegistryError> {
-        let cache_key = format!("docids:{}:{}:{}", provider_namespace, provider_name, service_slug);
-        
+        let cache_key = format!(
+            "docids:{}:{}:{}",
+            provider_namespace, provider_name, service_slug
+        );
+
         logging::debug(&format!(
             "Resolving doc IDs for provider {}/{}, service: {}, type: {:?}",
             provider_namespace, provider_name, service_slug, data_type
@@ -43,16 +46,22 @@ impl ProviderResolver {
         }
 
         // API call to search for documentation IDs
-        let results = self.client.search_docs(
-            provider_name,
-            provider_namespace,
-            service_slug,
-            data_type.unwrap_or("resources"),
-        ).await?;
+        let results = self
+            .client
+            .search_docs(
+                provider_name,
+                provider_namespace,
+                service_slug,
+                data_type.unwrap_or("resources"),
+            )
+            .await?;
 
         logging::info(&format!(
             "Found {} documentation entries for {}/{} service {}",
-            results.len(), provider_namespace, provider_name, service_slug
+            results.len(),
+            provider_namespace,
+            provider_name,
+            service_slug
         ));
 
         // Cache the results as JSON
@@ -70,7 +79,10 @@ impl ProviderResolver {
     pub async fn get_provider_docs(&self, doc_id: &str) -> Result<String, RegistryError> {
         let cache_key = format!("doc:{}", doc_id);
 
-        logging::debug(&format!("Fetching documentation content for ID: {}", doc_id));
+        logging::debug(&format!(
+            "Fetching documentation content for ID: {}",
+            doc_id
+        ));
 
         // Check cache first
         if let Some(cached_content) = self.cache.documentation_cache.get(&cache_key).await {
@@ -83,7 +95,8 @@ impl ProviderResolver {
 
         logging::info(&format!(
             "Retrieved documentation content for ID: {} ({} chars)",
-            doc_id, content.len()
+            doc_id,
+            content.len()
         ));
 
         // Cache the content
@@ -114,15 +127,13 @@ impl ProviderResolver {
 
         logging::info(&format!(
             "Search for '{}' returned {} providers",
-            query, results.len()
+            query,
+            results.len()
         ));
 
         // Cache search results (shorter TTL for search results)
         if let Ok(serialized) = serde_json::to_string(&results) {
-            self.cache
-                .providers_cache
-                .set(cache_key, serialized)
-                .await;
+            self.cache.providers_cache.set(cache_key, serialized).await;
         }
 
         Ok(results)
@@ -138,19 +149,26 @@ impl ProviderResolver {
         let cache_key = format!("info:{}:{}", namespace, provider_name);
 
         logging::debug(&format!(
-            "Getting provider info for {}/{}", namespace, provider_name
+            "Getting provider info for {}/{}",
+            namespace, provider_name
         ));
 
         // Check cache first
         if let Some(cached_info) = self.cache.providers_cache.get(&cache_key).await {
-            logging::debug(&format!("Found cached provider info for {}/{}", namespace, provider_name));
+            logging::debug(&format!(
+                "Found cached provider info for {}/{}",
+                namespace, provider_name
+            ));
             if let Ok(info) = serde_json::from_str::<ProviderInfo>(&cached_info) {
                 return Ok(info);
             }
         }
 
         // API call to get provider information
-        let info = self.client.get_provider_info(provider_name, namespace).await?;
+        let info = self
+            .client
+            .get_provider_info(provider_name, namespace)
+            .await?;
 
         logging::info(&format!(
             "Retrieved provider info for {}/{} - downloads: {}, version: {}",
@@ -159,15 +177,11 @@ impl ProviderResolver {
 
         // Cache the provider information
         if let Ok(serialized) = serde_json::to_string(&info) {
-            self.cache
-                .providers_cache
-                .set(cache_key, serialized)
-                .await;
+            self.cache.providers_cache.set(cache_key, serialized).await;
         }
 
         Ok(info)
     }
-
 }
 
 impl Default for ProviderResolver {

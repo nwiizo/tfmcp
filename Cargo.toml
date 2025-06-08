@@ -45,4 +45,3 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 tempfile = "3.15.0"
-mockall = "0.13.1"

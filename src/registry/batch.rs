@@ -27,7 +27,7 @@ impl BatchFetcher {
     ) -> Vec<Result<ProviderInfo, RegistryError>> {
         let start_time = Instant::now();
         let total_count = providers.len();
-        
+
         logging::info(&format!(
             "Starting batch fetch for {} providers with max {} concurrent requests",
             total_count, self.max_concurrent
@@ -39,7 +39,9 @@ impl BatchFetcher {
         for (chunk_index, chunk) in chunks.iter().enumerate() {
             logging::debug(&format!(
                 "Processing chunk {}/{} with {} providers",
-                chunk_index + 1, chunks.len(), chunk.len()
+                chunk_index + 1,
+                chunks.len(),
+                chunk.len()
             ));
 
             let chunk_start = Instant::now();
@@ -49,11 +51,11 @@ impl BatchFetcher {
                     let client = self.client.clone();
                     let name = name.to_string();
                     let namespace = namespace.to_string();
-                    
+
                     async move {
                         logging::debug(&format!("Fetching provider {}/{}", namespace, name));
                         let result = client.get_provider_info(&name, &namespace).await;
-                        
+
                         match &result {
                             Ok(info) => {
                                 logging::debug(&format!(
@@ -68,7 +70,7 @@ impl BatchFetcher {
                                 ));
                             }
                         }
-                        
+
                         result
                     }
                 })
@@ -76,16 +78,18 @@ impl BatchFetcher {
 
             let chunk_results = join_all(futures).await;
             all_results.extend(chunk_results);
-            
+
             logging::debug(&format!(
                 "Chunk {}/{} completed in {:?}",
-                chunk_index + 1, chunks.len(), chunk_start.elapsed()
+                chunk_index + 1,
+                chunks.len(),
+                chunk_start.elapsed()
             ));
         }
 
         let total_duration = start_time.elapsed();
         let success_count = all_results.iter().filter(|r| r.is_ok()).count();
-        
+
         logging::info(&format!(
             "Batch fetch completed: {}/{} successful in {:?} ({:.1} providers/sec)",
             success_count,
@@ -105,7 +109,7 @@ impl BatchFetcher {
     ) -> Vec<Result<(String, String), RegistryError>> {
         let start_time = Instant::now();
         let total_count = providers.len();
-        
+
         logging::info(&format!(
             "Starting batch version fetch for {} providers",
             total_count
@@ -121,7 +125,7 @@ impl BatchFetcher {
                     let client = self.client.clone();
                     let name = name.to_string();
                     let namespace = namespace.to_string();
-                    
+
                     async move {
                         let result = client.get_latest_version(&name, &namespace).await;
                         match &result {
@@ -146,16 +150,17 @@ impl BatchFetcher {
 
             let chunk_results = join_all(futures).await;
             all_results.extend(chunk_results);
-            
+
             logging::debug(&format!(
                 "Version chunk {}/{} completed",
-                chunk_index + 1, chunks.len()
+                chunk_index + 1,
+                chunks.len()
             ));
         }
 
         let total_duration = start_time.elapsed();
         let success_count = all_results.iter().filter(|r| r.is_ok()).count();
-        
+
         logging::info(&format!(
             "Batch version fetch completed: {}/{} successful in {:?}",
             success_count, total_count, total_duration
@@ -172,7 +177,7 @@ impl BatchFetcher {
     ) -> Vec<Result<Vec<crate::registry::client::DocIdResult>, RegistryError>> {
         let start_time = Instant::now();
         let total_count = doc_requests.len();
-        
+
         logging::info(&format!(
             "Starting batch documentation search for {} requests",
             total_count
@@ -190,20 +195,25 @@ impl BatchFetcher {
                     let namespace = namespace.to_string();
                     let service = service.to_string();
                     let data_type = data_type.to_string();
-                    
+
                     async move {
                         logging::debug(&format!(
                             "Searching docs for {}/{} service {} type {}",
                             namespace, provider, service, data_type
                         ));
-                        
-                        let result = client.search_docs(&provider, &namespace, &service, &data_type).await;
-                        
+
+                        let result = client
+                            .search_docs(&provider, &namespace, &service, &data_type)
+                            .await;
+
                         match &result {
                             Ok(docs) => {
                                 logging::debug(&format!(
                                     "Found {} docs for {}/{} service {}",
-                                    docs.len(), namespace, provider, service
+                                    docs.len(),
+                                    namespace,
+                                    provider,
+                                    service
                                 ));
                             }
                             Err(e) => {
@@ -213,7 +223,7 @@ impl BatchFetcher {
                                 ));
                             }
                         }
-                        
+
                         result
                     }
                 })
@@ -221,16 +231,17 @@ impl BatchFetcher {
 
             let chunk_results = join_all(futures).await;
             all_results.extend(chunk_results);
-            
+
             logging::debug(&format!(
                 "Documentation chunk {}/{} completed",
-                chunk_index + 1, chunks.len()
+                chunk_index + 1,
+                chunks.len()
             ));
         }
 
         let total_duration = start_time.elapsed();
         let success_count = all_results.iter().filter(|r| r.is_ok()).count();
-        
+
         logging::info(&format!(
             "Batch documentation search completed: {}/{} successful in {:?}",
             success_count, total_count, total_duration
@@ -260,15 +271,15 @@ mod tests {
     #[test]
     fn test_batch_fetcher_max_concurrent_limits() {
         let client = Arc::new(RegistryClient::new());
-        
+
         // Test upper limit
         let fetcher = BatchFetcher::new(client.clone(), 20);
         assert_eq!(fetcher.max_concurrent, 10);
-        
+
         // Test lower limit
         let fetcher = BatchFetcher::new(client.clone(), 0);
         assert_eq!(fetcher.max_concurrent, 1);
-        
+
         // Test normal case
         let fetcher = BatchFetcher::new(client, 5);
         assert_eq!(fetcher.max_concurrent, 5);

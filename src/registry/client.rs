@@ -18,10 +18,10 @@ pub enum RegistryError {
 
     #[error("Service '{service}' not found for provider '{provider}' in namespace '{namespace}'. Check the service name spelling or browse available services first.")]
     #[allow(dead_code)]
-    ServiceNotFound { 
-        service: String, 
-        provider: String, 
-        namespace: String 
+    ServiceNotFound {
+        service: String,
+        provider: String,
+        namespace: String,
     },
 
     #[error("Documentation not found for '{doc_id}'. The documentation may have been moved or the ID may be incorrect.")]
@@ -86,7 +86,6 @@ pub struct ProviderInfo {
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocIdResult {
@@ -187,7 +186,7 @@ impl RegistryClient {
 
         let response = self.client.get(&url).query(&[("q", query)]).send().await?;
         let status = response.status();
-        
+
         debug!("Search response status: {}", status);
 
         if status == 429 {
@@ -201,13 +200,15 @@ impl RegistryClient {
         }
 
         let response_text = response.text().await?;
-        debug!("Search response (first 1000 chars): {}", 
-               &response_text.chars().take(1000).collect::<String>());
+        debug!(
+            "Search response (first 1000 chars): {}",
+            &response_text.chars().take(1000).collect::<String>()
+        );
 
         match serde_json::from_str::<Value>(&response_text) {
             Ok(json_value) => {
                 debug!("Parsed search JSON structure: {:#?}", json_value);
-                
+
                 match serde_json::from_value::<RegistrySearchResponse>(json_value.clone()) {
                     Ok(mut search_response) => {
                         // Handle alternative response formats
@@ -216,69 +217,82 @@ impl RegistryClient {
                                 search_response.providers = data;
                             }
                         }
-                        
+
                         if search_response.providers.is_empty() {
                             info!("No search results found for query: {}", query);
-                            return Err(RegistryError::NoSearchResults { 
-                                query: query.to_string() 
+                            return Err(RegistryError::NoSearchResults {
+                                query: query.to_string(),
                             });
                         }
-                        
-                        info!("Found {} providers for query: {}", search_response.providers.len(), query);
+
+                        info!(
+                            "Found {} providers for query: {}",
+                            search_response.providers.len(),
+                            query
+                        );
                         Ok(search_response.providers)
                     }
                     Err(e) => {
                         error!("Failed to deserialize search response: {}", e);
-                        
+
                         // Try manual extraction
-                        if let Some(providers_array) = json_value.get("providers").and_then(|v| v.as_array()) {
+                        if let Some(providers_array) =
+                            json_value.get("providers").and_then(|v| v.as_array())
+                        {
                             let providers = self.extract_providers_from_array(providers_array);
                             if !providers.is_empty() {
                                 warn!("Using fallback provider search parsing");
                                 return Ok(providers);
                             }
                         }
-                        
-                        Err(RegistryError::JsonError(format!("Failed to parse search response: {}", e)))
+
+                        Err(RegistryError::JsonError(format!(
+                            "Failed to parse search response: {}",
+                            e
+                        )))
                     }
                 }
             }
             Err(e) => {
                 error!("Failed to parse search JSON: {}", e);
                 error!("Response text was: {}", response_text);
-                Err(RegistryError::JsonError(format!("Invalid JSON response: {}", e)))
+                Err(RegistryError::JsonError(format!(
+                    "Invalid JSON response: {}",
+                    e
+                )))
             }
         }
     }
 
     /// Helper function to extract providers from JSON array with fallback parsing
     fn extract_providers_from_array(&self, providers_array: &[Value]) -> Vec<ProviderInfo> {
-        providers_array.iter()
+        providers_array
+            .iter()
             .filter_map(|provider| {
                 let mut provider_info = ProviderInfo::default();
-                
+
                 if let Some(name) = provider.get("name").and_then(|v| v.as_str()) {
                     provider_info.name = name.to_string();
                 } else {
                     return None; // Name is required
                 }
-                
+
                 if let Some(namespace) = provider.get("namespace").and_then(|v| v.as_str()) {
                     provider_info.namespace = namespace.to_string();
                 }
-                
+
                 if let Some(desc) = provider.get("description").and_then(|v| v.as_str()) {
                     provider_info.description = desc.to_string();
                 }
-                
+
                 if let Some(downloads) = provider.get("downloads").and_then(|v| v.as_u64()) {
                     provider_info.downloads = downloads;
                 }
-                
+
                 if let Some(version) = provider.get("version").and_then(|v| v.as_str()) {
                     provider_info.version = version.to_string();
                 }
-                
+
                 Some(provider_info)
             })
             .collect()
@@ -299,7 +313,7 @@ impl RegistryClient {
 
         let response = self.client.get(&url).send().await?;
         let status = response.status();
-        
+
         debug!("Response status: {}", status);
         debug!("Response headers: {:?}", response.headers());
 
@@ -317,50 +331,67 @@ impl RegistryClient {
         }
 
         if !status.is_success() {
-            error!("HTTP error {}: {}", status, status.canonical_reason().unwrap_or("Unknown"));
+            error!(
+                "HTTP error {}: {}",
+                status,
+                status.canonical_reason().unwrap_or("Unknown")
+            );
             return Err(RegistryError::HttpError(format!("HTTP {}", status)));
         }
 
         // Get response text for detailed debugging
         let response_text = response.text().await?;
-        debug!("Response body (first 1000 chars): {}", 
-               &response_text.chars().take(1000).collect::<String>());
+        debug!(
+            "Response body (first 1000 chars): {}",
+            &response_text.chars().take(1000).collect::<String>()
+        );
 
         // First try to parse as generic JSON to debug structure
         match serde_json::from_str::<Value>(&response_text) {
             Ok(json_value) => {
                 debug!("Successfully parsed JSON. Structure: {:#?}", json_value);
-                
+
                 // Now try to deserialize into ProviderInfo
                 match serde_json::from_value::<ProviderInfo>(json_value.clone()) {
                     Ok(provider_info) => {
-                        info!("Successfully retrieved provider info for {}/{}", namespace, provider_name);
+                        info!(
+                            "Successfully retrieved provider info for {}/{}",
+                            namespace, provider_name
+                        );
                         Ok(provider_info)
                     }
                     Err(e) => {
                         error!("Failed to deserialize ProviderInfo: {}", e);
-                        error!("Parsed JSON was: {}", serde_json::to_string_pretty(&json_value).unwrap_or_else(|_| "Invalid JSON".to_string()));
-                        
+                        error!(
+                            "Parsed JSON was: {}",
+                            serde_json::to_string_pretty(&json_value)
+                                .unwrap_or_else(|_| "Invalid JSON".to_string())
+                        );
+
                         // Try to extract essential fields manually
                         let provider_info = ProviderInfo {
-                            name: json_value.get("name")
+                            name: json_value
+                                .get("name")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or(provider_name)
                                 .to_string(),
-                            namespace: json_value.get("namespace")
+                            namespace: json_value
+                                .get("namespace")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or(namespace)
                                 .to_string(),
-                            description: json_value.get("description")
+                            description: json_value
+                                .get("description")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("")
                                 .to_string(),
-                            downloads: json_value.get("downloads")
+                            downloads: json_value
+                                .get("downloads")
                                 .and_then(|v| v.as_u64())
                                 .unwrap_or(0),
                             ..Default::default()
                         };
-                        
+
                         warn!("Using fallback provider info parsing due to deserialization error");
                         Ok(provider_info)
                     }
@@ -369,7 +400,10 @@ impl RegistryClient {
             Err(e) => {
                 error!("Failed to parse JSON: {}", e);
                 error!("Response text was: {}", response_text);
-                Err(RegistryError::JsonError(format!("Invalid JSON response: {}", e)))
+                Err(RegistryError::JsonError(format!(
+                    "Invalid JSON response: {}",
+                    e
+                )))
             }
         }
     }
@@ -389,11 +423,14 @@ impl RegistryClient {
 
         let response = self.client.get(&url).send().await?;
         let status = response.status();
-        
+
         debug!("Response status: {}", status);
 
         if status == 404 {
-            warn!("Provider versions not found: {}/{}", namespace, provider_name);
+            warn!(
+                "Provider versions not found: {}/{}",
+                namespace, provider_name
+            );
             return Err(RegistryError::ProviderNotFound {
                 provider: provider_name.to_string(),
                 namespace: namespace.to_string(),
@@ -406,65 +443,91 @@ impl RegistryClient {
         }
 
         if !status.is_success() {
-            error!("HTTP error {}: {}", status, status.canonical_reason().unwrap_or("Unknown"));
+            error!(
+                "HTTP error {}: {}",
+                status,
+                status.canonical_reason().unwrap_or("Unknown")
+            );
             return Err(RegistryError::HttpError(format!("HTTP {}", status)));
         }
 
         let response_text = response.text().await?;
-        debug!("Versions response (first 500 chars): {}", 
-               &response_text.chars().take(500).collect::<String>());
+        debug!(
+            "Versions response (first 500 chars): {}",
+            &response_text.chars().take(500).collect::<String>()
+        );
 
         // Parse JSON and handle multiple response formats
         match serde_json::from_str::<Value>(&response_text) {
             Ok(json_value) => {
                 debug!("Parsed versions JSON structure: {:#?}", json_value);
-                
+
                 // Try to deserialize into ProviderVersions
                 match serde_json::from_value::<ProviderVersions>(json_value.clone()) {
                     Ok(mut versions) => {
                         // Handle alternative response formats
                         if versions.versions.is_empty() {
                             if let Some(data) = versions.data.as_ref() {
-                                versions.versions = data.iter()
+                                versions.versions = data
+                                    .iter()
                                     .map(|v| v.version.clone())
                                     .filter(|v| !v.is_empty())
                                     .collect();
                             }
                         }
-                        
+
                         if versions.versions.is_empty() {
-                            warn!("No versions available for provider {}/{}", namespace, provider_name);
+                            warn!(
+                                "No versions available for provider {}/{}",
+                                namespace, provider_name
+                            );
                             return Err(RegistryError::NoVersionsAvailable {
                                 provider: provider_name.to_string(),
                                 namespace: namespace.to_string(),
                             });
                         }
 
-                        let latest_version = versions.versions.first().cloned()
+                        let latest_version = versions
+                            .versions
+                            .first()
+                            .cloned()
                             .ok_or(RegistryError::InvalidResponse)?;
-                        
-                        info!("Found latest version {} for provider {}/{}", latest_version, namespace, provider_name);
+
+                        info!(
+                            "Found latest version {} for provider {}/{}",
+                            latest_version, namespace, provider_name
+                        );
                         Ok(latest_version)
                     }
                     Err(e) => {
                         error!("Failed to deserialize ProviderVersions: {}", e);
-                        
+
                         // Try manual extraction
-                        if let Some(versions_array) = json_value.get("versions").and_then(|v| v.as_array()) {
-                            if let Some(first_version) = versions_array.first().and_then(|v| v.as_str()) {
+                        if let Some(versions_array) =
+                            json_value.get("versions").and_then(|v| v.as_array())
+                        {
+                            if let Some(first_version) =
+                                versions_array.first().and_then(|v| v.as_str())
+                            {
                                 warn!("Using fallback version parsing");
                                 return Ok(first_version.to_string());
                             }
                         }
-                        
-                        Err(RegistryError::JsonError(format!("Failed to parse versions: {}", e)))
+
+                        Err(RegistryError::JsonError(format!(
+                            "Failed to parse versions: {}",
+                            e
+                        )))
                     }
                 }
             }
             Err(e) => {
                 error!("Failed to parse versions JSON: {}", e);
                 error!("Response text was: {}", response_text);
-                Err(RegistryError::JsonError(format!("Invalid JSON response: {}", e)))
+                Err(RegistryError::JsonError(format!(
+                    "Invalid JSON response: {}",
+                    e
+                )))
             }
         }
     }
@@ -477,32 +540,54 @@ impl RegistryClient {
         service_slug: &str,
         data_type: &str,
     ) -> Result<Vec<DocIdResult>, RegistryError> {
-        debug!("Searching docs for provider: {}/{}, service: {}, type: {}", 
-               namespace, provider_name, service_slug, data_type);
+        debug!(
+            "Searching docs for provider: {}/{}, service: {}, type: {}",
+            namespace, provider_name, service_slug, data_type
+        );
 
         // Try multiple URL patterns as the API endpoint may vary
         let url_patterns = [
-            format!("{}/v1/providers/{}/{}/docs", self.base_url, namespace, provider_name),
-            format!("{}/v2/providers/{}/{}/docs", self.base_url, namespace, provider_name),
-            format!("{}/providers/{}/{}/docs", self.base_url, namespace, provider_name),
-            format!("{}/docs/providers/{}/{}", self.base_url, namespace, provider_name),
+            format!(
+                "{}/v1/providers/{}/{}/docs",
+                self.base_url, namespace, provider_name
+            ),
+            format!(
+                "{}/v2/providers/{}/{}/docs",
+                self.base_url, namespace, provider_name
+            ),
+            format!(
+                "{}/providers/{}/{}/docs",
+                self.base_url, namespace, provider_name
+            ),
+            format!(
+                "{}/docs/providers/{}/{}",
+                self.base_url, namespace, provider_name
+            ),
         ];
 
         let query_params = [
             vec![("category", data_type), ("slug", service_slug)],
             vec![("type", data_type), ("slug", service_slug)],
-            vec![("filter[category]", data_type), ("filter[slug]", service_slug)],
+            vec![
+                ("filter[category]", data_type),
+                ("filter[slug]", service_slug),
+            ],
             vec![("q", service_slug), ("category", data_type)],
         ];
 
         for (url_idx, url) in url_patterns.iter().enumerate() {
             for params in query_params.iter() {
-                debug!("Trying URL pattern {}/{}: {} with params: {:?}", 
-                       url_idx + 1, url_patterns.len(), url, params);
+                debug!(
+                    "Trying URL pattern {}/{}: {} with params: {:?}",
+                    url_idx + 1,
+                    url_patterns.len(),
+                    url,
+                    params
+                );
 
                 let response = self.client.get(url).query(params).send().await?;
                 let status = response.status();
-                
+
                 debug!("Response status: {} for URL: {}", status, url);
 
                 if status == 429 {
@@ -511,7 +596,11 @@ impl RegistryClient {
                 }
 
                 if status == 404 {
-                    debug!("404 for pattern {}/{}, trying next pattern", url_idx + 1, url_patterns.len());
+                    debug!(
+                        "404 for pattern {}/{}, trying next pattern",
+                        url_idx + 1,
+                        url_patterns.len()
+                    );
                     continue;
                 }
 
@@ -521,13 +610,15 @@ impl RegistryClient {
                 }
 
                 let response_text = response.text().await?;
-                debug!("Docs response (first 500 chars): {}", 
-                       &response_text.chars().take(500).collect::<String>());
+                debug!(
+                    "Docs response (first 500 chars): {}",
+                    &response_text.chars().take(500).collect::<String>()
+                );
 
                 match serde_json::from_str::<Value>(&response_text) {
                     Ok(json_value) => {
                         debug!("Parsed docs JSON structure: {:#?}", json_value);
-                        
+
                         // Try to deserialize into ProviderDocsResponse
                         match serde_json::from_value::<ProviderDocsResponse>(json_value.clone()) {
                             Ok(mut docs_response) => {
@@ -535,33 +626,50 @@ impl RegistryClient {
                                 if docs_response.data.is_empty() {
                                     if let Some(docs) = docs_response.docs.take() {
                                         docs_response.data = docs;
-                                    } else if let Some(documentation) = docs_response.documentation.take() {
+                                    } else if let Some(documentation) =
+                                        docs_response.documentation.take()
+                                    {
                                         docs_response.data = documentation;
                                     }
                                 }
 
                                 if !docs_response.data.is_empty() {
-                                    info!("Found {} docs for {}/{} service: {}", 
-                                          docs_response.data.len(), namespace, provider_name, service_slug);
+                                    info!(
+                                        "Found {} docs for {}/{} service: {}",
+                                        docs_response.data.len(),
+                                        namespace,
+                                        provider_name,
+                                        service_slug
+                                    );
                                     return Ok(docs_response.data);
                                 }
                             }
                             Err(e) => {
                                 warn!("Failed to deserialize docs response: {}", e);
-                                
+
                                 // Try manual extraction from various JSON structures
-                                if let Some(docs_array) = json_value.get("data").and_then(|v| v.as_array()) {
+                                if let Some(docs_array) =
+                                    json_value.get("data").and_then(|v| v.as_array())
+                                {
                                     let docs = self.extract_docs_from_array(docs_array);
                                     if !docs.is_empty() {
-                                        info!("Extracted {} docs using fallback parsing", docs.len());
+                                        info!(
+                                            "Extracted {} docs using fallback parsing",
+                                            docs.len()
+                                        );
                                         return Ok(docs);
                                     }
                                 }
-                                
-                                if let Some(docs_array) = json_value.get("docs").and_then(|v| v.as_array()) {
+
+                                if let Some(docs_array) =
+                                    json_value.get("docs").and_then(|v| v.as_array())
+                                {
                                     let docs = self.extract_docs_from_array(docs_array);
                                     if !docs.is_empty() {
-                                        info!("Extracted {} docs using fallback parsing (docs field)", docs.len());
+                                        info!(
+                                            "Extracted {} docs using fallback parsing (docs field)",
+                                            docs.len()
+                                        );
                                         return Ok(docs);
                                     }
                                 }
@@ -585,23 +693,51 @@ impl RegistryClient {
             }
         }
 
-        warn!("No documentation found for {}/{} service: {} after trying all patterns", 
-              namespace, provider_name, service_slug);
+        warn!(
+            "No documentation found for {}/{} service: {} after trying all patterns",
+            namespace, provider_name, service_slug
+        );
         Ok(vec![])
     }
 
     /// Helper function to extract docs from JSON array with fallback parsing
     fn extract_docs_from_array(&self, docs_array: &[Value]) -> Vec<DocIdResult> {
-        docs_array.iter()
+        docs_array
+            .iter()
             .filter_map(|doc| {
                 let doc_result = DocIdResult {
-                    id: doc.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    title: doc.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    description: doc.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    category: doc.get("category").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    slug: doc.get("slug").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    path: doc.get("path").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    subcategory: doc.get("subcategory").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    id: doc
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    title: doc
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    description: doc
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    category: doc
+                        .get("category")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    slug: doc
+                        .get("slug")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    path: doc
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    subcategory: doc
+                        .get("subcategory")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
                     extra: HashMap::new(),
                 };
 
@@ -628,11 +764,16 @@ impl RegistryClient {
         ];
 
         for (idx, url) in url_patterns.iter().enumerate() {
-            debug!("Trying documentation URL pattern {}/{}: {}", idx + 1, url_patterns.len(), url);
+            debug!(
+                "Trying documentation URL pattern {}/{}: {}",
+                idx + 1,
+                url_patterns.len(),
+                url
+            );
 
             let response = self.client.get(url).send().await?;
             let status = response.status();
-            
+
             debug!("Response status: {} for docs URL: {}", status, url);
 
             if status == 429 {
@@ -641,7 +782,11 @@ impl RegistryClient {
             }
 
             if status == 404 {
-                debug!("404 for docs pattern {}/{}, trying next pattern", idx + 1, url_patterns.len());
+                debug!(
+                    "404 for docs pattern {}/{}, trying next pattern",
+                    idx + 1,
+                    url_patterns.len()
+                );
                 continue;
             }
 
@@ -651,18 +796,27 @@ impl RegistryClient {
             }
 
             let content = response.text().await?;
-            debug!("Retrieved documentation content ({} chars) for ID: {}", content.len(), doc_id);
-            
+            debug!(
+                "Retrieved documentation content ({} chars) for ID: {}",
+                content.len(),
+                doc_id
+            );
+
             if !content.trim().is_empty() {
-                info!("Successfully retrieved documentation content for ID: {}", doc_id);
+                info!(
+                    "Successfully retrieved documentation content for ID: {}",
+                    doc_id
+                );
                 return Ok(content);
             }
         }
 
-        error!("Documentation not found for ID: {} after trying all patterns", doc_id);
+        error!(
+            "Documentation not found for ID: {} after trying all patterns",
+            doc_id
+        );
         Err(RegistryError::DocumentationNotFound {
             doc_id: doc_id.to_string(),
         })
     }
-
 }

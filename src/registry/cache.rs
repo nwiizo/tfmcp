@@ -86,7 +86,6 @@ impl<T: Clone> SimpleCache<T> {
         let storage = self.storage.read().await;
         storage.len()
     }
-
 }
 
 #[derive(Debug)]
@@ -126,7 +125,10 @@ impl CacheManager {
     #[allow(dead_code)]
     pub async fn global_stats(&self) -> HashMap<String, CacheStats> {
         let mut stats = HashMap::new();
-        stats.insert("documentation".to_string(), self.documentation_cache.stats().await);
+        stats.insert(
+            "documentation".to_string(),
+            self.documentation_cache.stats().await,
+        );
         stats.insert("providers".to_string(), self.providers_cache.stats().await);
         stats
     }
@@ -180,5 +182,4 @@ mod tests {
         sleep(Duration::from_millis(60)).await;
         assert_eq!(cache.get("key1").await, None);
     }
-
 }

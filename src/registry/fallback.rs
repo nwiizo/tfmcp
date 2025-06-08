@@ -33,7 +33,6 @@ impl RegistryClientWithFallback {
         }
     }
 
-
     /// Get provider version with intelligent fallback
     /// Tries the specified namespace first, then falls back to common namespaces
     pub async fn get_provider_version(
@@ -232,7 +231,6 @@ impl RegistryClientWithFallback {
 
         Ok((vec![], used_namespace))
     }
-
 }
 
 impl Default for RegistryClientWithFallback {
@@ -240,7 +238,6 @@ impl Default for RegistryClientWithFallback {
         Self::new()
     }
 }
-
 
 #[cfg(test)]
 mod tests {

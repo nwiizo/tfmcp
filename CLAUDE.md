@@ -11,16 +11,19 @@ tfmcp is a Rust-based Model Context Protocol (MCP) server that enables AI assist
 ### Development Workflow
 ```bash
 # Format code (always run before commits)
-cargo fmt
+cargo fmt --all
 
-# Lint with warnings as errors
-cargo clippy -- -D warnings
+# Lint with warnings as errors (same as CI)
+RUSTFLAGS="-Dwarnings" cargo clippy --all-targets --all-features
 
-# Run tests
-cargo test
+# Check formatting matches CI expectations
+cargo fmt --all -- --check
+
+# Run tests with locked dependencies like CI
+cargo test --locked --all-features --verbose
 
 # Build the project
-cargo build --release
+cargo build --release --locked --all-features --verbose
 
 # Install from source
 cargo install --path .
@@ -28,6 +31,38 @@ cargo install --path .
 # Install from crates.io
 cargo install tfmcp
 ```
+
+### CI/CD Quality Standards
+
+**CRITICAL: All CI checks must pass before merging**
+
+Our CI pipeline enforces strict quality standards:
+- `RUSTFLAGS="-Dwarnings"` - All warnings are treated as errors
+- `cargo fmt --all -- --check` - Code formatting must be perfect
+- `cargo clippy --all-targets --all-features -- -D warnings` - No clippy warnings allowed
+- `cargo test --locked --all-features --verbose` - All tests must pass
+- Security audit with `cargo audit`
+- Cross-platform testing (Ubuntu, Windows, macOS)
+
+### Pre-Commit Quality Checks
+
+**MANDATORY: Run these commands before every commit:**
+
+```bash
+# 1. Format code
+cargo fmt --all
+
+# 2. Check for clippy warnings (with CI-level strictness)
+RUSTFLAGS="-Dwarnings" cargo clippy --all-targets --all-features
+
+# 3. Run all tests
+cargo test --locked --all-features
+
+# 4. Verify formatting is correct
+cargo fmt --all -- --check
+```
+
+If any of these fail, **DO NOT COMMIT** until fixed.
 
 ### Docker Operations
 ```bash
@@ -139,8 +174,33 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ## Development Guidelines
 
+### Security and Code Quality Standards
+
+**CRITICAL SECURITY RULES:**
+
+1. **NEVER use mock frameworks or mock code:**
+   - ❌ **FORBIDDEN**: `mockall`, `mock` libraries, or any mock implementations
+   - ❌ **FORBIDDEN**: Mock structs, mock functions, or fake implementations
+   - ✅ **ALLOWED**: Real integration tests with temporary files/directories
+   - ✅ **ALLOWED**: Testing with actual data structures and real implementations
+   
+   **Reason**: Mock code can mask security vulnerabilities and create false confidence in tests.
+
+2. **Remove ALL unused code immediately:**
+   - ❌ **FORBIDDEN**: Dead code, unused functions, unused structs, unused imports
+   - ❌ **FORBIDDEN**: Commented-out code blocks
+   - ❌ **FORBIDDEN**: `#[allow(dead_code)]` except for very specific cases
+   - ✅ **REQUIRED**: Clean, minimal codebase with only actively used code
+   - ✅ **REQUIRED**: Remove unused dependencies from Cargo.toml
+
+3. **Code quality enforcement:**
+   - ❌ **FORBIDDEN**: Any warnings in CI (`RUSTFLAGS="-Dwarnings"`)
+   - ❌ **FORBIDDEN**: Unused variables, unused imports, unused functions
+   - ✅ **REQUIRED**: Prefix test variables with `_` if intentionally unused
+   - ✅ **REQUIRED**: Use `#[allow(dead_code)]` only for legitimate infrastructure code
+
 ### Code Style (from rules/rust/)
-- Follow `rustfmt` formatting (run `cargo fmt` before commits)
+- Follow `rustfmt` formatting (run `cargo fmt --all` before commits)
 - Maximum line length: 100 characters
 - Use `Result`/`Option` types appropriately
 - Document public APIs with rustdoc comments
@@ -154,11 +214,11 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ### Testing Strategy
 - Unit tests for individual modules
-- Integration tests for Terraform service operations
-- Registry API integration tests with mock responses
+- Integration tests for Terraform service operations  
+- Registry API integration tests with real API calls (limited by timeouts)
 - Performance tests for batch operations and caching
 - Use `tempfile` for file system tests
-- Use `mockall` for mocking external dependencies
+- **NO MOCK FRAMEWORKS** - Use real implementations only
 
 ### New Module Guidelines
 

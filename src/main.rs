@@ -58,7 +58,7 @@ enum Commands {
 async fn main() {
     // Initialize tracing/logging
     init_logging();
-    
+
     let cli = Cli::parse();
 
     if cli.version {
@@ -121,12 +121,12 @@ fn init_logging() {
     let log_level = std::env::var("TFMCP_LOG_LEVEL")
         .unwrap_or_else(|_| "info".to_string())
         .to_lowercase();
-    
+
     let filter = match log_level.as_str() {
         "trace" => "trace",
         "debug" => "debug",
         "info" => "info",
-        "warn" | "warning" => "warn", 
+        "warn" | "warning" => "warn",
         "error" => "error",
         _ => "info",
     };
@@ -134,7 +134,7 @@ fn init_logging() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| format!("tfmcp={},reqwest=warn,hyper=warn", filter).into())
+                .unwrap_or_else(|_| format!("tfmcp={},reqwest=warn,hyper=warn", filter).into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

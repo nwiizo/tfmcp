@@ -469,13 +469,13 @@ impl<'a> McpHandler<'a> {
 
     pub async fn launch_mcp(&mut self, transport: &StdioTransport) -> anyhow::Result<()> {
         logging::info("MCP stdio transport server started. Waiting for JSON messages on stdin...");
-        
+
         // Create the stream receiver first, before sending any log messages
         let mut stream = transport.receive();
-        
+
         // Add a small delay to ensure the receiver is ready
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-        
+
         logging::send_log_message(
             transport,
             logging::LogLevel::Info,
@@ -488,17 +488,20 @@ impl<'a> McpHandler<'a> {
 
         while let Some(msg_result) = stream.next().await {
             logging::debug("Stream received a message, processing...");
-            
+
             // Debug: Log what type of message we received
             match &msg_result {
                 Ok(msg) => {
-                    logging::debug(&format!("Received message type: {:?}", std::any::type_name_of_val(msg)));
+                    logging::debug(&format!(
+                        "Received message type: {:?}",
+                        std::any::type_name_of_val(msg)
+                    ));
                 }
                 Err(e) => {
                     logging::debug(&format!("Received error: {:?}", e));
                 }
             }
-            
+
             match msg_result {
                 Ok(Message::Request {
                     id, method, params, ..
@@ -1133,7 +1136,10 @@ impl<'a> McpHandler<'a> {
         logging::info("Handling set_terraform_directory request");
 
         // パラメータから新しいディレクトリパスを取得
-        let directory = match params_val.pointer("/arguments/directory").and_then(|v| v.as_str()) {
+        let directory = match params_val
+            .pointer("/arguments/directory")
+            .and_then(|v| v.as_str())
+        {
             Some(dir) => dir.to_string(),
             None => {
                 return self
@@ -1279,7 +1285,10 @@ impl<'a> McpHandler<'a> {
         id: u64,
         params_val: &serde_json::Value,
     ) -> anyhow::Result<()> {
-        let query = match params_val.pointer("/arguments/query").and_then(|v| v.as_str()) {
+        let query = match params_val
+            .pointer("/arguments/query")
+            .and_then(|v| v.as_str())
+        {
             Some(q) => q,
             None => {
                 return self
@@ -1319,7 +1328,10 @@ impl<'a> McpHandler<'a> {
         id: u64,
         params_val: &serde_json::Value,
     ) -> anyhow::Result<()> {
-        let provider_name = match params_val.pointer("/arguments/provider_name").and_then(|v| v.as_str()) {
+        let provider_name = match params_val
+            .pointer("/arguments/provider_name")
+            .and_then(|v| v.as_str())
+        {
             Some(name) => name,
             None => {
                 return self
@@ -1333,12 +1345,22 @@ impl<'a> McpHandler<'a> {
             }
         };
 
-        let namespace = params_val.pointer("/arguments/namespace").and_then(|v| v.as_str());
+        let namespace = params_val
+            .pointer("/arguments/namespace")
+            .and_then(|v| v.as_str());
 
-        match self.registry_client.get_provider_info(provider_name, namespace).await {
+        match self
+            .registry_client
+            .get_provider_info(provider_name, namespace)
+            .await
+        {
             Ok(provider_info) => {
                 // Also get versions for comprehensive information
-                match self.registry_client.get_provider_version(provider_name, namespace).await {
+                match self
+                    .registry_client
+                    .get_provider_version(provider_name, namespace)
+                    .await
+                {
                     Ok((version, used_namespace)) => {
                         let result_json = json!({
                             "provider": {
@@ -1387,7 +1409,10 @@ impl<'a> McpHandler<'a> {
         id: u64,
         params_val: &serde_json::Value,
     ) -> anyhow::Result<()> {
-        let provider_name = match params_val.pointer("/arguments/provider_name").and_then(|v| v.as_str()) {
+        let provider_name = match params_val
+            .pointer("/arguments/provider_name")
+            .and_then(|v| v.as_str())
+        {
             Some(name) => name,
             None => {
                 return self
@@ -1401,7 +1426,10 @@ impl<'a> McpHandler<'a> {
             }
         };
 
-        let service_slug = match params_val.pointer("/arguments/service_slug").and_then(|v| v.as_str()) {
+        let service_slug = match params_val
+            .pointer("/arguments/service_slug")
+            .and_then(|v| v.as_str())
+        {
             Some(slug) => slug,
             None => {
                 return self
@@ -1415,19 +1443,23 @@ impl<'a> McpHandler<'a> {
             }
         };
 
-        let namespace = params_val.pointer("/arguments/namespace").and_then(|v| v.as_str());
-        let data_type = params_val.pointer("/arguments/data_type").and_then(|v| v.as_str()).unwrap_or("resources");
+        let namespace = params_val
+            .pointer("/arguments/namespace")
+            .and_then(|v| v.as_str());
+        let data_type = params_val
+            .pointer("/arguments/data_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("resources");
 
-        match self.registry_client.search_docs_with_fallback(
-            provider_name,
-            namespace,
-            service_slug,
-            data_type,
-        ).await {
+        match self
+            .registry_client
+            .search_docs_with_fallback(provider_name, namespace, service_slug, data_type)
+            .await
+        {
             Ok((doc_ids, used_namespace)) => {
                 // Fetch content for each documentation ID
                 let mut documentation = Vec::new();
-                
+
                 for doc_id in doc_ids {
                     match self.provider_resolver.get_provider_docs(&doc_id.id).await {
                         Ok(content) => {

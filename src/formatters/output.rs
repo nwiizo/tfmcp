@@ -173,7 +173,6 @@ impl OutputFormatter {
         })
     }
 
-
     /// Format comprehensive provider comparison
     pub fn format_provider_comparison(providers: Vec<(ProviderInfo, Vec<String>)>) -> Value {
         json!({

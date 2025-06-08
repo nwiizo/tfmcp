@@ -5,7 +5,7 @@ pub mod registry {
     pub mod client;
     pub mod fallback;
     pub mod provider;
-    
+
     // Re-export commonly used items
     pub use batch::BatchFetcher;
     pub use cache::{CacheManager, SimpleCache};
@@ -16,14 +16,14 @@ pub mod registry {
 
 pub mod formatters {
     pub mod output;
-    
+
     pub use output::OutputFormatter;
 }
 
 pub mod prompts {
     pub mod builder;
     pub mod descriptions;
-    
+
     pub use builder::{ToolDescription, ToolExample};
 }
 
