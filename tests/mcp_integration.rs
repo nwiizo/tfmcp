@@ -35,9 +35,15 @@ resource "local_file" "test" {
 
 /// Check if running in CI environment
 fn is_ci_environment() -> bool {
+    // Check multiple environment variables that indicate CI environment
     std::env::var("CI").is_ok() 
         || std::env::var("GITHUB_ACTIONS").is_ok()
         || std::env::var("CONTINUOUS_INTEGRATION").is_ok()
+        || std::env::var("GITHUB_WORKFLOW").is_ok()
+        || std::env::var("GITHUB_RUN_ID").is_ok()
+        || std::env::var("RUNNER_OS").is_ok()
+        || std::env::var("GITHUB_ACTOR").is_ok()
+        || which::which("terraform").is_err() // If terraform binary not available, likely CI
 }
 
 #[tokio::test]
