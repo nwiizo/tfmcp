@@ -36,7 +36,7 @@ resource "local_file" "test" {
 /// Check if running in CI environment
 fn is_ci_environment() -> bool {
     // Check multiple environment variables that indicate CI environment
-    std::env::var("CI").is_ok() 
+    std::env::var("CI").is_ok()
         || std::env::var("GITHUB_ACTIONS").is_ok()
         || std::env::var("CONTINUOUS_INTEGRATION").is_ok()
         || std::env::var("GITHUB_WORKFLOW").is_ok()
@@ -73,7 +73,7 @@ async fn test_mcp_initialize_response() -> Result<()> {
         // In local environment, test with actual TfMcp instance creation
         let temp_dir = setup_test_terraform_project().await?;
         let temp_dir_str = temp_dir.path().to_string_lossy().to_string();
-        
+
         // This may fail if Terraform is not installed locally, but that's expected
         match TfMcp::new(None, Some(temp_dir_str)) {
             Ok(mut tfmcp) => {
@@ -136,13 +136,13 @@ async fn test_mcp_tools_list() -> Result<()> {
         // In local environment, test with actual TfMcp instance creation
         let temp_dir = setup_test_terraform_project().await?;
         let temp_dir_str = temp_dir.path().to_string_lossy().to_string();
-        
+
         // This may fail if Terraform is not installed locally, but that's expected
         match TfMcp::new(None, Some(temp_dir_str)) {
             Ok(mut tfmcp) => {
                 let _handler = McpHandler::new(&mut tfmcp);
                 // Test that the handler can be created
-                
+
                 // Also test JSON structure
                 let tools_json = r#"{
   "tools": [
@@ -202,7 +202,7 @@ async fn test_mcp_error_handling() -> Result<()> {
         // In local environment, test with actual TfMcp instance creation
         let temp_dir = setup_test_terraform_project().await?;
         let temp_dir_str = temp_dir.path().to_string_lossy().to_string();
-        
+
         // This may fail if Terraform is not installed locally, but that's expected
         match TfMcp::new(None, Some(temp_dir_str)) {
             Ok(mut tfmcp) => {
@@ -213,7 +213,7 @@ async fn test_mcp_error_handling() -> Result<()> {
                 // If Terraform is not available locally, just test error JSON structure
             }
         }
-        
+
         // Always test error response structure
         let error_response = json!({
             "jsonrpc": "2.0",
