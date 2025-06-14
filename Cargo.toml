@@ -1,6 +1,6 @@
 [package]
 name = "tfmcp"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 authors = ["nwiizo <syu.m.5151@gmail.com>"]
 description = "Terraform Model Context Protocol Tool - A CLI tool to manage Terraform through MCP"
