@@ -22,9 +22,10 @@ WORKDIR /app
 # Copy only the files needed for dependencies first to leverage Docker cache
 COPY Cargo.toml rust-toolchain.toml build.rs ./
 
-# Create a dummy main.rs to build dependencies
+# Create dummy src files to build dependencies (lib + bin structure)
 RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs && \
+    echo "" > src/lib.rs && \
     cargo build --release && \
     rm -rf src
 
