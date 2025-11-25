@@ -17,7 +17,7 @@ pub enum FallbackError {
 
 /// Registry client with intelligent fallback capabilities
 pub struct RegistryClientWithFallback {
-    primary: Arc<RegistryClient>,
+    pub primary: Arc<RegistryClient>,
     pub fallback_namespaces: Vec<String>,
 }
 

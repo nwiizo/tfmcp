@@ -1,8 +1,11 @@
 use crate::shared::security::SecurityManager;
+use crate::terraform::analyzer;
 use crate::terraform::model::{
-    DetailedValidationResult, TerraformAnalysis, TerraformValidateOutput,
+    DetailedValidationResult, ModuleHealthAnalysis, RefactoringSuggestion, ResourceDependencyGraph,
+    TerraformAnalysis, TerraformValidateOutput,
 };
 use crate::terraform::parser::TerraformParser;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
@@ -590,5 +593,126 @@ impl TerraformService {
     #[allow(dead_code)]
     pub fn is_operation_allowed(&self, operation: &str) -> bool {
         self.security_manager.is_command_allowed(operation)
+    }
+
+    // ==================== Module Health Analysis Methods ====================
+
+    /// Read all Terraform file contents from the project directory
+    async fn read_file_contents(&self) -> anyhow::Result<HashMap<String, String>> {
+        let mut file_contents = HashMap::new();
+        let entries = std::fs::read_dir(&self.project_directory)?;
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "tf") {
+                if let Some(filename) = path.file_name() {
+                    let filename_str = filename.to_string_lossy().to_string();
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        file_contents.insert(filename_str, content);
+                    }
+                }
+            }
+        }
+
+        // Also check for nested modules
+        let modules_dir = self.project_directory.join("modules");
+        if modules_dir.exists() && modules_dir.is_dir() {
+            Self::read_nested_modules(&modules_dir, "modules", &mut file_contents)?;
+        }
+
+        Ok(file_contents)
+    }
+
+    /// Recursively read nested module contents
+    fn read_nested_modules(
+        dir: &Path,
+        prefix: &str,
+        file_contents: &mut HashMap<String, String>,
+    ) -> anyhow::Result<()> {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let submodule_name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let new_prefix = format!("{}/{}", prefix, submodule_name);
+                    Self::read_nested_modules(&path, &new_prefix, file_contents)?;
+                } else if path.is_file() && path.extension().is_some_and(|ext| ext == "tf") {
+                    if let Some(filename) = path.file_name() {
+                        let key = format!("{}/{}", prefix, filename.to_string_lossy());
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            file_contents.insert(key, content);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Analyze module health based on whitebox principles
+    /// Detects issues related to cohesion, coupling, and module structure
+    pub async fn analyze_module_health(&self) -> anyhow::Result<ModuleHealthAnalysis> {
+        eprintln!(
+            "[DEBUG] Analyzing module health in {}",
+            self.project_directory.display()
+        );
+
+        let analysis = self.analyze_configurations().await?;
+        let file_contents = self.read_file_contents().await?;
+
+        let health = analyzer::analyze_module_health(&analysis, &file_contents);
+
+        eprintln!(
+            "[INFO] Module health analysis complete: score={}, issues={}",
+            health.health_score,
+            health.issues.len()
+        );
+
+        Ok(health)
+    }
+
+    /// Build resource dependency graph for visualization
+    pub async fn get_dependency_graph(&self) -> anyhow::Result<ResourceDependencyGraph> {
+        eprintln!(
+            "[DEBUG] Building dependency graph for {}",
+            self.project_directory.display()
+        );
+
+        let analysis = self.analyze_configurations().await?;
+        let file_contents = self.read_file_contents().await?;
+
+        let graph = analyzer::build_dependency_graph(&analysis, &file_contents);
+
+        eprintln!(
+            "[INFO] Dependency graph built: {} nodes, {} edges",
+            graph.nodes.len(),
+            graph.edges.len()
+        );
+
+        Ok(graph)
+    }
+
+    /// Generate refactoring suggestions based on module health analysis
+    pub async fn suggest_refactoring(&self) -> anyhow::Result<Vec<RefactoringSuggestion>> {
+        eprintln!(
+            "[DEBUG] Generating refactoring suggestions for {}",
+            self.project_directory.display()
+        );
+
+        let analysis = self.analyze_configurations().await?;
+        let file_contents = self.read_file_contents().await?;
+        let health = analyzer::analyze_module_health(&analysis, &file_contents);
+
+        let suggestions = analyzer::suggest_refactoring(&analysis, &health);
+
+        eprintln!(
+            "[INFO] Generated {} refactoring suggestions",
+            suggestions.len()
+        );
+
+        Ok(suggestions)
     }
 }

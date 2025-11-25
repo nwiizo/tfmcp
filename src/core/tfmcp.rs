@@ -480,4 +480,27 @@ resource "local_file" "example" {
     pub fn get_project_directory(&self) -> PathBuf {
         self.terraform_service.get_project_directory().clone()
     }
+
+    // Module health analysis methods
+
+    /// Analyze module health based on whitebox principles
+    pub async fn analyze_module_health(
+        &self,
+    ) -> anyhow::Result<crate::terraform::model::ModuleHealthAnalysis> {
+        self.terraform_service.analyze_module_health().await
+    }
+
+    /// Build resource dependency graph for visualization
+    pub async fn get_dependency_graph(
+        &self,
+    ) -> anyhow::Result<crate::terraform::model::ResourceDependencyGraph> {
+        self.terraform_service.get_dependency_graph().await
+    }
+
+    /// Generate refactoring suggestions
+    pub async fn suggest_refactoring(
+        &self,
+    ) -> anyhow::Result<Vec<crate::terraform::model::RefactoringSuggestion>> {
+        self.terraform_service.suggest_refactoring().await
+    }
 }

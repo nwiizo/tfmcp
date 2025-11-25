@@ -7,6 +7,595 @@ use futures::StreamExt;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
+// MCP Resource Contents
+const TERRAFORM_STYLE_GUIDE: &str = r#"# Terraform Style Guide
+
+## Overview
+This style guide provides best practices for writing clean, maintainable Terraform configurations.
+
+## File Structure
+
+### Standard Files
+- `main.tf` - Primary resource definitions
+- `variables.tf` - Variable declarations
+- `outputs.tf` - Output definitions
+- `providers.tf` - Provider configurations
+- `versions.tf` - Terraform and provider version constraints
+- `terraform.tfvars` - Variable values (don't commit secrets)
+- `locals.tf` - Local value definitions
+
+### Directory Structure
+```
+project/
+├── modules/
+│   ├── networking/
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   └── compute/
+│       ├── main.tf
+│       ├── variables.tf
+│       └── outputs.tf
+├── environments/
+│   ├── dev/
+│   ├── staging/
+│   └── prod/
+├── main.tf
+├── variables.tf
+├── outputs.tf
+└── versions.tf
+```
+
+## Naming Conventions
+
+### Resources
+- Use lowercase with underscores: `aws_instance.web_server`
+- Be descriptive but concise
+- Include purpose in the name: `aws_security_group.allow_https`
+
+### Variables
+- Use lowercase with underscores: `instance_type`
+- Prefix with resource type for clarity: `vpc_cidr_block`
+- Use descriptive names: `enable_monitoring` not `em`
+
+### Outputs
+- Use lowercase with underscores
+- Prefix with resource type: `vpc_id`, `subnet_ids`
+- Be consistent with variable naming
+
+## Formatting
+
+### Indentation
+- Use 2 spaces for indentation
+- Align `=` signs within blocks when it improves readability
+
+### Blocks
+```hcl
+resource "aws_instance" "example" {
+  ami           = var.ami_id
+  instance_type = var.instance_type
+
+  tags = {
+    Name        = "example-instance"
+    Environment = var.environment
+  }
+}
+```
+
+### Meta-Arguments Order
+1. `count` or `for_each`
+2. Resource-specific arguments
+3. `depends_on`
+4. `lifecycle`
+
+## Variables
+
+### Always Include
+- `description` - What the variable is for
+- `type` - Variable type constraint
+- `default` - When a sensible default exists
+
+### Example
+```hcl
+variable "instance_type" {
+  description = "EC2 instance type for the web server"
+  type        = string
+  default     = "t3.micro"
+
+  validation {
+    condition     = can(regex("^t[23]\\.", var.instance_type))
+    error_message = "Instance type must be a t2 or t3 instance."
+  }
+}
+```
+
+## Outputs
+
+### Always Include
+- `description` - What the output provides
+- `value` - The actual output value
+
+### Example
+```hcl
+output "instance_public_ip" {
+  description = "Public IP address of the web server"
+  value       = aws_instance.web_server.public_ip
+}
+```
+
+## Comments
+
+### When to Comment
+- Complex logic or calculations
+- Non-obvious dependencies
+- Temporary workarounds
+
+### Format
+```hcl
+# Single line comment for brief explanations
+
+/*
+ * Multi-line comment for longer
+ * explanations or documentation
+ */
+```
+
+## Best Practices
+
+### State Management
+- Use remote state (S3, GCS, Azure Blob)
+- Enable state locking
+- Don't commit state files
+
+### Security
+- Never hardcode secrets
+- Use variables or data sources for sensitive values
+- Enable encryption for state files
+- Use least-privilege IAM policies
+
+### Version Constraints
+```hcl
+terraform {
+  required_version = ">= 1.0.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+```
+
+### Resource Dependencies
+- Use implicit dependencies when possible
+- Use `depends_on` only for hidden dependencies
+- Document explicit dependencies with comments
+"#;
+
+const TERRAFORM_MODULE_DEVELOPMENT: &str = r#"# Terraform Module Development Guide
+
+## Overview
+This guide covers best practices for developing reusable Terraform modules.
+
+## Module Structure
+
+### Basic Structure
+```
+module/
+├── main.tf          # Primary resource definitions
+├── variables.tf     # Input variables
+├── outputs.tf       # Output values
+├── versions.tf      # Version constraints
+├── README.md        # Documentation
+├── examples/        # Usage examples
+│   └── basic/
+│       └── main.tf
+└── tests/          # Module tests
+    └── basic_test.go
+```
+
+### Advanced Structure
+```
+module/
+├── main.tf
+├── variables.tf
+├── outputs.tf
+├── versions.tf
+├── locals.tf        # Local values
+├── data.tf          # Data sources
+├── README.md
+├── CHANGELOG.md
+├── LICENSE
+├── .terraform-docs.yml
+├── examples/
+│   ├── basic/
+│   ├── complete/
+│   └── with-existing-resources/
+├── modules/         # Submodules
+│   └── submodule/
+└── tests/
+```
+
+## Input Variables
+
+### Design Principles
+1. Provide sensible defaults when possible
+2. Use validation blocks for constraints
+3. Mark sensitive variables appropriately
+4. Group related variables logically
+
+### Example
+```hcl
+variable "name" {
+  description = "Name prefix for all resources"
+  type        = string
+
+  validation {
+    condition     = length(var.name) <= 32
+    error_message = "Name must be 32 characters or less."
+  }
+}
+
+variable "tags" {
+  description = "Tags to apply to all resources"
+  type        = map(string)
+  default     = {}
+}
+
+variable "database_password" {
+  description = "Password for the database"
+  type        = string
+  sensitive   = true
+}
+```
+
+## Output Values
+
+### Design Principles
+1. Output all resource attributes users might need
+2. Use clear, descriptive names
+3. Include descriptions for all outputs
+4. Consider output structure for complex resources
+
+### Example
+```hcl
+output "id" {
+  description = "The ID of the created resource"
+  value       = aws_instance.this.id
+}
+
+output "arn" {
+  description = "The ARN of the created resource"
+  value       = aws_instance.this.arn
+}
+
+output "instance" {
+  description = "All attributes of the instance"
+  value       = aws_instance.this
+}
+```
+
+## Versioning
+
+### Semantic Versioning
+- MAJOR: Breaking changes
+- MINOR: New features (backward compatible)
+- PATCH: Bug fixes (backward compatible)
+
+### Version Constraints
+```hcl
+terraform {
+  required_version = ">= 1.3.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = ">= 4.0.0, < 6.0.0"
+    }
+  }
+}
+```
+
+## Documentation
+
+### README Contents
+1. Module description and purpose
+2. Usage examples
+3. Requirements (Terraform version, providers)
+4. Input variables table
+5. Output values table
+6. License information
+
+### terraform-docs
+Use terraform-docs to auto-generate documentation:
+```bash
+terraform-docs markdown table . > README.md
+```
+
+## Testing
+
+### Manual Testing
+```bash
+cd examples/basic
+terraform init
+terraform plan
+terraform apply
+terraform destroy
+```
+
+### Automated Testing with Terratest
+```go
+package test
+
+import (
+    "testing"
+    "github.com/gruntwork-io/terratest/modules/terraform"
+)
+
+func TestBasicExample(t *testing.T) {
+    terraformOptions := &terraform.Options{
+        TerraformDir: "../examples/basic",
+    }
+    defer terraform.Destroy(t, terraformOptions)
+    terraform.InitAndApply(t, terraformOptions)
+}
+```
+
+## Publishing
+
+### Terraform Registry
+1. Host module on GitHub
+2. Use semantic version tags (v1.0.0)
+3. Follow naming convention: terraform-<PROVIDER>-<NAME>
+4. Include required documentation
+
+### Private Registry
+- Use Terraform Cloud/Enterprise private registry
+- Or host your own with module sources
+
+## Best Practices
+
+### Composition Over Inheritance
+- Create small, focused modules
+- Compose larger configurations from smaller modules
+- Avoid deeply nested module hierarchies
+
+### Flexibility vs. Simplicity
+- Provide escape hatches for advanced users
+- Keep simple use cases simple
+- Use object variables for complex configurations
+
+### Conditional Resources
+```hcl
+variable "create_resource" {
+  description = "Whether to create the resource"
+  type        = bool
+  default     = true
+}
+
+resource "aws_instance" "this" {
+  count = var.create_resource ? 1 : 0
+  # ...
+}
+```
+
+### Dynamic Blocks
+```hcl
+dynamic "ingress" {
+  for_each = var.ingress_rules
+  content {
+    from_port   = ingress.value.from_port
+    to_port     = ingress.value.to_port
+    protocol    = ingress.value.protocol
+    cidr_blocks = ingress.value.cidr_blocks
+  }
+}
+```
+"#;
+
+const TERRAFORM_BEST_PRACTICES: &str = r#"# Terraform Best Practices
+
+## Security Best Practices
+
+### Secrets Management
+1. Never commit secrets to version control
+2. Use environment variables or secret management tools
+3. Enable encryption for state files
+4. Use data sources for dynamic secret retrieval
+
+```hcl
+# Good: Use data sources for secrets
+data "aws_secretsmanager_secret_version" "db_password" {
+  secret_id = "prod/db/password"
+}
+
+resource "aws_db_instance" "main" {
+  password = data.aws_secretsmanager_secret_version.db_password.secret_string
+}
+```
+
+### IAM and Access Control
+- Apply least privilege principle
+- Use IAM roles instead of access keys
+- Enable MFA for sensitive operations
+- Regularly audit permissions
+
+### State Security
+```hcl
+terraform {
+  backend "s3" {
+    bucket         = "terraform-state"
+    key            = "prod/terraform.tfstate"
+    region         = "us-east-1"
+    encrypt        = true
+    dynamodb_table = "terraform-locks"
+  }
+}
+```
+
+## Performance Best Practices
+
+### State Management
+- Use workspaces for environment separation
+- Split large configurations into smaller states
+- Use remote state data sources for cross-project references
+
+### Resource Targeting
+```bash
+# Plan specific resources for faster feedback
+terraform plan -target=aws_instance.web_server
+
+# Apply specific changes
+terraform apply -target=module.networking
+```
+
+### Parallelism
+```bash
+# Increase parallelism for faster operations
+terraform apply -parallelism=20
+```
+
+## Operational Best Practices
+
+### Version Control
+- Use separate branches for environments
+- Review all changes before applying
+- Use pull requests for infrastructure changes
+- Tag releases with semantic versions
+
+### CI/CD Integration
+```yaml
+# Example GitHub Actions workflow
+name: Terraform
+on: [push, pull_request]
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: hashicorp/setup-terraform@v2
+      - run: terraform fmt -check
+      - run: terraform init
+      - run: terraform validate
+      - run: terraform plan
+```
+
+### Environment Management
+- Use workspaces or separate directories
+- Keep environment configurations DRY
+- Use variable files per environment
+
+```bash
+terraform workspace select prod
+terraform apply -var-file="prod.tfvars"
+```
+
+## Code Quality
+
+### Validation
+```hcl
+variable "environment" {
+  type = string
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "Environment must be dev, staging, or prod."
+  }
+}
+```
+
+### Pre-commit Hooks
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.77.0
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+      - id: terraform_tflint
+      - id: terraform_docs
+```
+
+### Linting with tflint
+```bash
+tflint --init
+tflint
+```
+
+## Disaster Recovery
+
+### State Backup
+- Enable versioning on state storage
+- Regularly backup state files
+- Test state recovery procedures
+
+### Drift Detection
+```bash
+# Detect configuration drift
+terraform plan -detailed-exitcode
+```
+
+### Import Existing Resources
+```bash
+terraform import aws_instance.example i-1234567890abcdef0
+```
+
+## Cost Management
+
+### Cost Estimation
+```bash
+# Use Infracost for cost estimation
+infracost breakdown --path .
+```
+
+### Resource Tagging
+```hcl
+locals {
+  common_tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+    CostCenter  = var.cost_center
+  }
+}
+
+resource "aws_instance" "example" {
+  # ...
+  tags = merge(local.common_tags, {
+    Name = "example-instance"
+  })
+}
+```
+
+## Collaboration
+
+### Code Review Checklist
+- [ ] Variables have descriptions and types
+- [ ] Outputs are documented
+- [ ] Resources follow naming conventions
+- [ ] Security best practices followed
+- [ ] Tests pass
+- [ ] Documentation updated
+
+### Remote State Locking
+- Always enable state locking
+- Use DynamoDB for S3 backend
+- Handle lock conflicts appropriately
+
+```hcl
+terraform {
+  backend "s3" {
+    bucket         = "terraform-state"
+    key            = "terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-locks"
+  }
+}
+```
+"#;
+
 const TOOLS_JSON: &str = r#"{
   "tools": [
     {
@@ -446,6 +1035,239 @@ const TOOLS_JSON: &str = r#"{
         },
         "required": ["success", "directory", "message"]
       }
+    },
+    {
+      "name": "search_terraform_modules",
+      "description": "Search for Terraform modules in the official registry",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query for module names (e.g., 'vpc', 'eks', 's3')"
+          }
+        },
+        "required": ["query"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "modules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "namespace": { "type": "string" },
+                "name": { "type": "string" },
+                "provider": { "type": "string" },
+                "version": { "type": "string" },
+                "description": { "type": "string" },
+                "downloads": { "type": "integer" },
+                "verified": { "type": "boolean" }
+              }
+            }
+          }
+        },
+        "required": ["modules"]
+      }
+    },
+    {
+      "name": "get_module_details",
+      "description": "Get detailed information about a specific Terraform module including inputs, outputs, and dependencies",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "namespace": {
+            "type": "string",
+            "description": "Module namespace (e.g., 'terraform-aws-modules')"
+          },
+          "name": {
+            "type": "string",
+            "description": "Module name (e.g., 'vpc')"
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider name (e.g., 'aws')"
+          },
+          "version": {
+            "type": "string",
+            "description": "Specific version to retrieve (optional, defaults to latest)"
+          }
+        },
+        "required": ["namespace", "name", "provider"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "type": "object",
+            "description": "Detailed module information including inputs, outputs, resources, and submodules"
+          }
+        },
+        "required": ["module"]
+      }
+    },
+    {
+      "name": "get_latest_module_version",
+      "description": "Get the latest version of a Terraform module",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "namespace": {
+            "type": "string",
+            "description": "Module namespace (e.g., 'terraform-aws-modules')"
+          },
+          "name": {
+            "type": "string",
+            "description": "Module name (e.g., 'vpc')"
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider name (e.g., 'aws')"
+          }
+        },
+        "required": ["namespace", "name", "provider"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "Latest version of the module"
+          },
+          "module_id": {
+            "type": "string",
+            "description": "Full module identifier"
+          }
+        },
+        "required": ["version", "module_id"]
+      }
+    },
+    {
+      "name": "get_latest_provider_version",
+      "description": "Get the latest version of a Terraform provider",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "provider_name": {
+            "type": "string",
+            "description": "Name of the provider (e.g., 'aws', 'google', 'kubernetes')"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Provider namespace (optional, will try common namespaces like 'hashicorp')"
+          }
+        },
+        "required": ["provider_name"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "Latest version of the provider"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Namespace where the provider was found"
+          },
+          "provider_id": {
+            "type": "string",
+            "description": "Full provider identifier"
+          }
+        },
+        "required": ["version", "namespace", "provider_id"]
+      }
+    },
+    {
+      "name": "analyze_module_health",
+      "description": "Analyze module health based on whitebox principles. Detects issues related to cohesion (logical vs functional), coupling (control vs data), variable exposure, hierarchy depth, and documentation quality. Returns health score, issues, and recommendations following infrastructure-as-code best practices.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "module_path": { "type": "string" },
+          "health_score": { "type": "integer", "description": "0-100, higher is better" },
+          "metrics": {
+            "type": "object",
+            "description": "Quantitative metrics including variable_count, resource_count, resource_type_count, hierarchy_depth"
+          },
+          "issues": {
+            "type": "array",
+            "description": "List of detected issues with severity, category, and message"
+          },
+          "recommendations": {
+            "type": "array",
+            "description": "Actionable recommendations for improvement"
+          },
+          "cohesion_analysis": {
+            "type": "object",
+            "description": "Cohesion type (Functional, Logical, etc.) and score"
+          },
+          "coupling_analysis": {
+            "type": "object",
+            "description": "Coupling type (Data, Control, etc.) and dependencies"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_resource_dependency_graph",
+      "description": "Build a resource dependency graph for visualization. Shows nodes (resources), edges (dependencies), and module boundaries. Useful for understanding resource relationships and identifying hidden dependencies.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "description": "Resource nodes with id, type, name, module_path, file, provider"
+          },
+          "edges": {
+            "type": "array",
+            "description": "Dependency edges with source, target, dependency_type (Explicit, Implicit, DataSource)"
+          },
+          "module_boundaries": {
+            "type": "array",
+            "description": "Module groupings for visualization"
+          }
+        }
+      }
+    },
+    {
+      "name": "suggest_module_refactoring",
+      "description": "Generate refactoring suggestions based on module health analysis. Suggests actions like splitting modules, wrapping public modules, adding documentation, and flattening hierarchies. Each suggestion includes migration steps.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "suggestion_type": { "type": "string", "description": "Type of refactoring (SplitModule, WrapPublicModule, etc.)" },
+                "priority": { "type": "string", "description": "Critical, Warning, or Info" },
+                "description": { "type": "string" },
+                "affected_resources": { "type": "array" },
+                "migration_steps": { "type": "array" }
+              }
+            }
+          }
+        }
+      }
     }
   ]
 }"#;
@@ -605,6 +1427,12 @@ impl<'a> McpHandler<'a> {
                 }
             }
             "resources/list" => self.handle_resources_list(transport, id).await?,
+            "resources/read" => {
+                if let Some(params_val) = params {
+                    self.handle_resources_read(transport, id, params_val)
+                        .await?;
+                }
+            }
             "prompts/list" => self.handle_prompts_list(transport, id).await?,
             _ => {
                 self.send_error_response(
@@ -737,6 +1565,33 @@ impl<'a> McpHandler<'a> {
             }
             "get_provider_docs" => {
                 self.handle_get_provider_docs(transport, id, &params_val)
+                    .await?;
+            }
+            "search_terraform_modules" => {
+                self.handle_search_terraform_modules(transport, id, &params_val)
+                    .await?;
+            }
+            "get_module_details" => {
+                self.handle_get_module_details(transport, id, &params_val)
+                    .await?;
+            }
+            "get_latest_module_version" => {
+                self.handle_get_latest_module_version(transport, id, &params_val)
+                    .await?;
+            }
+            "get_latest_provider_version" => {
+                self.handle_get_latest_provider_version(transport, id, &params_val)
+                    .await?;
+            }
+            "analyze_module_health" => {
+                self.handle_analyze_module_health(transport, id).await?;
+            }
+            "get_resource_dependency_graph" => {
+                self.handle_get_resource_dependency_graph(transport, id)
+                    .await?;
+            }
+            "suggest_module_refactoring" => {
+                self.handle_suggest_module_refactoring(transport, id)
                     .await?;
             }
             _ => {
@@ -987,12 +1842,31 @@ impl<'a> McpHandler<'a> {
     ) -> anyhow::Result<()> {
         logging::info("Handling resources/list request");
 
-        // Create a response with an empty resources list
+        // Create a response with Terraform resources
         let response = Message::Response {
             jsonrpc: "2.0".to_string(),
             id,
             result: Some(json!({
-                "resources": []
+                "resources": [
+                    {
+                        "uri": "terraform://style-guide",
+                        "name": "Terraform Style Guide",
+                        "description": "Official Terraform style guide with best practices for HCL formatting, naming conventions, and code organization",
+                        "mimeType": "text/markdown"
+                    },
+                    {
+                        "uri": "terraform://module-development",
+                        "name": "Terraform Module Development Guide",
+                        "description": "Comprehensive guide on module composition, structure, providers, publishing, and refactoring",
+                        "mimeType": "text/markdown"
+                    },
+                    {
+                        "uri": "terraform://best-practices",
+                        "name": "Terraform Best Practices",
+                        "description": "Security, performance, and operational best practices for Terraform configurations",
+                        "mimeType": "text/markdown"
+                    }
+                ]
             })),
             error: None,
         };
@@ -1010,6 +1884,71 @@ impl<'a> McpHandler<'a> {
             }
             Err(e) => {
                 logging::error(&format!("Failed to send resources/list response: {}", e));
+                Err(e.into())
+            }
+        }
+    }
+
+    async fn handle_resources_read(
+        &self,
+        transport: &StdioTransport,
+        id: u64,
+        params_val: serde_json::Value,
+    ) -> anyhow::Result<()> {
+        logging::info("Handling resources/read request");
+
+        let uri = match params_val.get("uri").and_then(|v| v.as_str()) {
+            Some(u) => u,
+            None => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        "Missing required parameter: uri".to_string(),
+                    )
+                    .await;
+            }
+        };
+
+        logging::debug(&format!("Reading resource: {}", uri));
+
+        let (content, mime_type) = match uri {
+            "terraform://style-guide" => (TERRAFORM_STYLE_GUIDE, "text/markdown"),
+            "terraform://module-development" => (TERRAFORM_MODULE_DEVELOPMENT, "text/markdown"),
+            "terraform://best-practices" => (TERRAFORM_BEST_PRACTICES, "text/markdown"),
+            _ => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        format!("Unknown resource URI: {}", uri),
+                    )
+                    .await;
+            }
+        };
+
+        let response = Message::Response {
+            jsonrpc: "2.0".to_string(),
+            id,
+            result: Some(json!({
+                "contents": [{
+                    "uri": uri,
+                    "mimeType": mime_type,
+                    "text": content
+                }]
+            })),
+            error: None,
+        };
+
+        match transport.send(response).await {
+            Ok(_) => {
+                logging::info(&format!("Resource {} read successfully", uri));
+                Ok(())
+            }
+            Err(e) => {
+                logging::error(&format!("Failed to send resources/read response: {}", e));
                 Err(e.into())
             }
         }
@@ -1500,6 +2439,358 @@ impl<'a> McpHandler<'a> {
                     id,
                     JsonRpcErrorCode::InternalError,
                     format!("Failed to get provider documentation: {}", err),
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    // Module-related handlers
+    async fn handle_search_terraform_modules(
+        &self,
+        transport: &StdioTransport,
+        id: u64,
+        params_val: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let query = match params_val
+            .pointer("/arguments/query")
+            .and_then(|v| v.as_str())
+        {
+            Some(q) => q,
+            None => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        "Missing required parameter: query".to_string(),
+                    )
+                    .await;
+            }
+        };
+
+        match self.registry_client.primary.search_modules(query).await {
+            Ok(modules) => {
+                let result_json = json!({ "modules": modules });
+                let obj_as_str = serde_json::to_string(&result_json)?;
+                self.send_text_response(transport, id, &obj_as_str).await?;
+            }
+            Err(err) => {
+                self.send_error_response(
+                    transport,
+                    id,
+                    JsonRpcErrorCode::InternalError,
+                    format!("Failed to search modules: {}", err),
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_get_module_details(
+        &self,
+        transport: &StdioTransport,
+        id: u64,
+        params_val: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let namespace = match params_val
+            .pointer("/arguments/namespace")
+            .and_then(|v| v.as_str())
+        {
+            Some(ns) => ns,
+            None => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        "Missing required parameter: namespace".to_string(),
+                    )
+                    .await;
+            }
+        };
+
+        let name = match params_val
+            .pointer("/arguments/name")
+            .and_then(|v| v.as_str())
+        {
+            Some(n) => n,
+            None => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        "Missing required parameter: name".to_string(),
+                    )
+                    .await;
+            }
+        };
+
+        let provider = match params_val
+            .pointer("/arguments/provider")
+            .and_then(|v| v.as_str())
+        {
+            Some(p) => p,
+            None => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        "Missing required parameter: provider".to_string(),
+                    )
+                    .await;
+            }
+        };
+
+        let version = params_val
+            .pointer("/arguments/version")
+            .and_then(|v| v.as_str());
+
+        match self
+            .registry_client
+            .primary
+            .get_module_details(namespace, name, provider, version)
+            .await
+        {
+            Ok(module_details) => {
+                let result_json = json!({ "module": module_details });
+                let obj_as_str = serde_json::to_string(&result_json)?;
+                self.send_text_response(transport, id, &obj_as_str).await?;
+            }
+            Err(err) => {
+                self.send_error_response(
+                    transport,
+                    id,
+                    JsonRpcErrorCode::InternalError,
+                    format!("Failed to get module details: {}", err),
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_get_latest_module_version(
+        &self,
+        transport: &StdioTransport,
+        id: u64,
+        params_val: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let namespace = match params_val
+            .pointer("/arguments/namespace")
+            .and_then(|v| v.as_str())
+        {
+            Some(ns) => ns,
+            None => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        "Missing required parameter: namespace".to_string(),
+                    )
+                    .await;
+            }
+        };
+
+        let name = match params_val
+            .pointer("/arguments/name")
+            .and_then(|v| v.as_str())
+        {
+            Some(n) => n,
+            None => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        "Missing required parameter: name".to_string(),
+                    )
+                    .await;
+            }
+        };
+
+        let provider = match params_val
+            .pointer("/arguments/provider")
+            .and_then(|v| v.as_str())
+        {
+            Some(p) => p,
+            None => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        "Missing required parameter: provider".to_string(),
+                    )
+                    .await;
+            }
+        };
+
+        match self
+            .registry_client
+            .primary
+            .get_latest_module_version(namespace, name, provider)
+            .await
+        {
+            Ok(version) => {
+                let result_json = json!({
+                    "version": version,
+                    "module_id": format!("{}/{}/{}", namespace, name, provider)
+                });
+                let obj_as_str = serde_json::to_string(&result_json)?;
+                self.send_text_response(transport, id, &obj_as_str).await?;
+            }
+            Err(err) => {
+                self.send_error_response(
+                    transport,
+                    id,
+                    JsonRpcErrorCode::InternalError,
+                    format!("Failed to get latest module version: {}", err),
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_get_latest_provider_version(
+        &self,
+        transport: &StdioTransport,
+        id: u64,
+        params_val: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let provider_name = match params_val
+            .pointer("/arguments/provider_name")
+            .and_then(|v| v.as_str())
+        {
+            Some(name) => name,
+            None => {
+                return self
+                    .send_error_response(
+                        transport,
+                        id,
+                        JsonRpcErrorCode::InvalidParams,
+                        "Missing required parameter: provider_name".to_string(),
+                    )
+                    .await;
+            }
+        };
+
+        let namespace = params_val
+            .pointer("/arguments/namespace")
+            .and_then(|v| v.as_str());
+
+        match self
+            .registry_client
+            .get_provider_version(provider_name, namespace)
+            .await
+        {
+            Ok((version, used_namespace)) => {
+                let result_json = json!({
+                    "version": version,
+                    "namespace": used_namespace,
+                    "provider_id": format!("{}/{}", used_namespace, provider_name)
+                });
+                let obj_as_str = serde_json::to_string(&result_json)?;
+                self.send_text_response(transport, id, &obj_as_str).await?;
+            }
+            Err(err) => {
+                self.send_error_response(
+                    transport,
+                    id,
+                    JsonRpcErrorCode::InternalError,
+                    format!("Failed to get latest provider version: {}", err),
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    // Module health analysis handlers
+    async fn handle_analyze_module_health(
+        &self,
+        transport: &StdioTransport,
+        id: u64,
+    ) -> anyhow::Result<()> {
+        logging::info("Handling analyze_module_health request");
+
+        match self.tfmcp.analyze_module_health().await {
+            Ok(health) => {
+                let result_json = serde_json::to_value(&health)?;
+                let obj_as_str = serde_json::to_string(&result_json)?;
+                self.send_text_response(transport, id, &obj_as_str).await?;
+            }
+            Err(err) => {
+                self.send_error_response(
+                    transport,
+                    id,
+                    JsonRpcErrorCode::InternalError,
+                    format!("Failed to analyze module health: {}", err),
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_get_resource_dependency_graph(
+        &self,
+        transport: &StdioTransport,
+        id: u64,
+    ) -> anyhow::Result<()> {
+        logging::info("Handling get_resource_dependency_graph request");
+
+        match self.tfmcp.get_dependency_graph().await {
+            Ok(graph) => {
+                let result_json = serde_json::to_value(&graph)?;
+                let obj_as_str = serde_json::to_string(&result_json)?;
+                self.send_text_response(transport, id, &obj_as_str).await?;
+            }
+            Err(err) => {
+                self.send_error_response(
+                    transport,
+                    id,
+                    JsonRpcErrorCode::InternalError,
+                    format!("Failed to build dependency graph: {}", err),
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_suggest_module_refactoring(
+        &self,
+        transport: &StdioTransport,
+        id: u64,
+    ) -> anyhow::Result<()> {
+        logging::info("Handling suggest_module_refactoring request");
+
+        match self.tfmcp.suggest_refactoring().await {
+            Ok(suggestions) => {
+                let result_json = json!({ "suggestions": suggestions });
+                let obj_as_str = serde_json::to_string(&result_json)?;
+                self.send_text_response(transport, id, &obj_as_str).await?;
+            }
+            Err(err) => {
+                self.send_error_response(
+                    transport,
+                    id,
+                    JsonRpcErrorCode::InternalError,
+                    format!("Failed to generate refactoring suggestions: {}", err),
                 )
                 .await?;
             }

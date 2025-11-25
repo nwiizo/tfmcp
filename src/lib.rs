@@ -34,6 +34,7 @@ pub mod shared {
 }
 
 pub mod terraform {
+    pub mod analyzer;
     pub mod model;
     pub mod parser;
     pub mod service;
@@ -56,4 +57,5 @@ pub use mcp::handler::McpHandler;
 pub use mcp::stdio::{Message, StdioTransport};
 pub use registry::cache::CacheManager;
 pub use registry::provider::ProviderResolver;
+pub use terraform::model;
 pub use terraform::service::TerraformService;

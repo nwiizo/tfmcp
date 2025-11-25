@@ -335,3 +335,199 @@ async fn test_end_to_end_provider_workflow() {
     assert_eq!(cache_stats.valid_entries, 0);
     assert_eq!(cache_stats.expired_entries, 0);
 }
+
+// ==================== Module Health Analysis Tests ====================
+
+use std::fs;
+use tempfile::tempdir;
+
+/// Test module health analysis with a sample Terraform project
+#[tokio::test]
+async fn test_module_health_analysis() {
+    // Create a temporary Terraform project
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let project_path = temp_dir.path();
+
+    // Create main.tf with networking resources
+    let main_tf = r#"
+resource "aws_vpc" "main" {
+  cidr_block = var.vpc_cidr
+}
+
+resource "aws_subnet" "public" {
+  vpc_id     = aws_vpc.main.id
+  cidr_block = var.subnet_cidr
+}
+
+resource "aws_security_group" "web" {
+  vpc_id = aws_vpc.main.id
+  name   = "web-sg"
+}
+"#;
+    fs::write(project_path.join("main.tf"), main_tf).expect("Failed to write main.tf");
+
+    // Create variables.tf
+    let variables_tf = r#"
+variable "vpc_cidr" {
+  description = "VPC CIDR block"
+  type        = string
+  default     = "10.0.0.0/16"
+}
+
+variable "subnet_cidr" {
+  type    = string
+  default = "10.0.1.0/24"
+}
+"#;
+    fs::write(project_path.join("variables.tf"), variables_tf)
+        .expect("Failed to write variables.tf");
+
+    // Check if terraform binary exists
+    let terraform_path = which::which("terraform");
+    if terraform_path.is_err() {
+        println!("Skipping test: terraform binary not found");
+        return;
+    }
+
+    // Create TerraformService
+    let service = tfmcp::TerraformService::new(terraform_path.unwrap(), project_path.to_path_buf());
+
+    // Test module health analysis
+    let health = service.analyze_module_health().await;
+    assert!(health.is_ok(), "Module health analysis should succeed");
+
+    let health = health.unwrap();
+    assert!(!health.module_path.is_empty());
+    assert!(health.health_score <= 100);
+    assert!(health.metrics.resource_count > 0);
+    assert!(health.metrics.variable_count > 0);
+
+    // Cohesion should be good (all networking resources)
+    assert!(
+        health.cohesion_analysis.score > 50,
+        "Cohesion should be good for related resources"
+    );
+}
+
+/// Test resource dependency graph generation
+#[tokio::test]
+async fn test_resource_dependency_graph() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let project_path = temp_dir.path();
+
+    // Create main.tf with dependencies
+    let main_tf = r#"
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+}
+
+resource "aws_subnet" "public" {
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.1.0/24"
+}
+
+resource "aws_instance" "web" {
+  ami           = "ami-12345"
+  instance_type = "t3.micro"
+  subnet_id     = aws_subnet.public.id
+
+  depends_on = [aws_vpc.main]
+}
+"#;
+    fs::write(project_path.join("main.tf"), main_tf).expect("Failed to write main.tf");
+
+    let terraform_path = which::which("terraform");
+    if terraform_path.is_err() {
+        println!("Skipping test: terraform binary not found");
+        return;
+    }
+
+    let service = tfmcp::TerraformService::new(terraform_path.unwrap(), project_path.to_path_buf());
+
+    let graph = service.get_dependency_graph().await;
+    assert!(graph.is_ok(), "Dependency graph should be generated");
+
+    let graph = graph.unwrap();
+    assert_eq!(graph.nodes.len(), 3, "Should have 3 resource nodes");
+    assert!(
+        !graph.module_boundaries.is_empty(),
+        "Should have module boundaries"
+    );
+}
+
+/// Test refactoring suggestions
+#[tokio::test]
+async fn test_refactoring_suggestions() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let project_path = temp_dir.path();
+
+    // Create main.tf with many different resource types (low cohesion)
+    let main_tf = r#"
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+}
+
+resource "aws_instance" "web" {
+  ami           = "ami-12345"
+  instance_type = "t3.micro"
+}
+
+resource "aws_s3_bucket" "logs" {
+  bucket = "logs-bucket"
+}
+
+resource "aws_lambda_function" "processor" {
+  function_name = "processor"
+  runtime       = "python3.9"
+  handler       = "main.handler"
+  role          = "arn:aws:iam::123456789:role/lambda"
+  filename      = "function.zip"
+}
+
+resource "aws_rds_cluster" "database" {
+  cluster_identifier = "database"
+  engine             = "aurora-mysql"
+  master_username    = "admin"
+  master_password    = "password"
+}
+"#;
+    fs::write(project_path.join("main.tf"), main_tf).expect("Failed to write main.tf");
+
+    // Create variables.tf with many variables (some without descriptions)
+    let variables_tf = r#"
+variable "var1" { type = string }
+variable "var2" { type = string }
+variable "var3" { type = string }
+variable "var4" { type = string }
+variable "var5" { type = string }
+"#;
+    fs::write(project_path.join("variables.tf"), variables_tf)
+        .expect("Failed to write variables.tf");
+
+    let terraform_path = which::which("terraform");
+    if terraform_path.is_err() {
+        println!("Skipping test: terraform binary not found");
+        return;
+    }
+
+    let service = tfmcp::TerraformService::new(terraform_path.unwrap(), project_path.to_path_buf());
+
+    let suggestions = service.suggest_refactoring().await;
+    assert!(
+        suggestions.is_ok(),
+        "Refactoring suggestions should be generated"
+    );
+
+    let suggestions = suggestions.unwrap();
+    // Should suggest adding descriptions for variables without them
+    let has_description_suggestion = suggestions.iter().any(|s| {
+        matches!(
+            s.suggestion_type,
+            tfmcp::model::RefactoringType::AddDescriptions
+        )
+    });
+    assert!(
+        has_description_suggestion,
+        "Should suggest adding descriptions"
+    );
+}

@@ -16,6 +16,13 @@ pub enum RegistryError {
     #[error("Provider '{provider}' not found in namespace '{namespace}'. Try using a different namespace or let the system auto-fallback to common namespaces (hashicorp, terraform-providers, community).")]
     ProviderNotFound { provider: String, namespace: String },
 
+    #[error("Module '{module}' not found for provider '{provider}' in namespace '{namespace}'. Check the module name spelling or search for available modules.")]
+    ModuleNotFound {
+        module: String,
+        provider: String,
+        namespace: String,
+    },
+
     #[error("Service '{service}' not found for provider '{provider}' in namespace '{namespace}'. Check the service name spelling or browse available services first.")]
     #[allow(dead_code)]
     ServiceNotFound {
@@ -38,6 +45,9 @@ pub enum RegistryError {
 
     #[error("Provider '{provider}' exists but has no available versions in namespace '{namespace}'. This may indicate a deprecated or invalid provider.")]
     NoVersionsAvailable { provider: String, namespace: String },
+
+    #[error("Module '{module}' exists but has no available versions. This may indicate a deprecated or invalid module.")]
+    NoModuleVersionsAvailable { module: String },
 }
 
 impl From<reqwest::Error> for RegistryError {
@@ -152,6 +162,261 @@ pub struct ProviderDocsResponse {
     pub docs: Option<Vec<DocIdResult>>,
     #[serde(default)]
     pub documentation: Option<Vec<DocIdResult>>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+// Module-related structures
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleInfo {
+    pub id: String,
+    #[serde(default)]
+    pub namespace: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub published_at: String,
+    #[serde(default)]
+    pub downloads: u64,
+    #[serde(default)]
+    pub verified: bool,
+    #[serde(default)]
+    pub owner: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleDetails {
+    pub id: String,
+    #[serde(default)]
+    pub namespace: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub published_at: String,
+    #[serde(default)]
+    pub downloads: u64,
+    #[serde(default)]
+    pub verified: bool,
+    #[serde(default)]
+    pub root: Option<ModuleRoot>,
+    #[serde(default)]
+    pub submodules: Vec<ModuleSubmodule>,
+    #[serde(default)]
+    pub versions: Vec<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleRoot {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub readme: String,
+    #[serde(default)]
+    pub empty: bool,
+    #[serde(default)]
+    pub inputs: Vec<ModuleInput>,
+    #[serde(default)]
+    pub outputs: Vec<ModuleOutput>,
+    #[serde(default)]
+    pub dependencies: Vec<ModuleDependency>,
+    #[serde(default)]
+    pub provider_dependencies: Vec<ModuleProviderDependency>,
+    #[serde(default)]
+    pub resources: Vec<ModuleResource>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleSubmodule {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub readme: String,
+    #[serde(default)]
+    pub empty: bool,
+    #[serde(default)]
+    pub inputs: Vec<ModuleInput>,
+    #[serde(default)]
+    pub outputs: Vec<ModuleOutput>,
+    #[serde(default)]
+    pub dependencies: Vec<ModuleDependency>,
+    #[serde(default)]
+    pub resources: Vec<ModuleResource>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleInput {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default, rename = "type")]
+    pub input_type: String,
+    #[serde(default)]
+    pub default: Option<Value>,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleOutput {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleDependency {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleProviderDependency {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub namespace: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleResource {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default, rename = "type")]
+    pub resource_type: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModuleSearchResponse {
+    #[serde(default)]
+    pub modules: Vec<ModuleInfo>,
+    #[serde(default)]
+    pub meta: ModuleSearchMeta,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleSearchMeta {
+    #[serde(default)]
+    pub limit: u32,
+    #[serde(default)]
+    pub current_offset: u32,
+    #[serde(default)]
+    pub next_offset: Option<u32>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModuleVersionsResponse {
+    #[serde(default)]
+    pub modules: Vec<ModuleVersionInfo>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleVersionInfo {
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub versions: Vec<ModuleVersionDetail>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleVersionDetail {
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub root: Option<ModuleVersionRoot>,
+    #[serde(default)]
+    pub submodules: Vec<ModuleVersionSubmodule>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleVersionRoot {
+    #[serde(default)]
+    pub providers: Vec<ModuleVersionProvider>,
+    #[serde(default)]
+    pub dependencies: Vec<Value>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleVersionSubmodule {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub providers: Vec<ModuleVersionProvider>,
+    #[serde(default)]
+    pub dependencies: Vec<Value>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleVersionProvider {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub namespace: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub version: String,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
@@ -818,5 +1083,431 @@ impl RegistryClient {
         Err(RegistryError::DocumentationNotFound {
             doc_id: doc_id.to_string(),
         })
+    }
+
+    // ==================== Module API Methods ====================
+
+    /// Search for modules in the Terraform Registry
+    pub async fn search_modules(&self, query: &str) -> Result<Vec<ModuleInfo>, RegistryError> {
+        let url = format!("{}/v1/modules/search", self.base_url);
+        debug!("Searching modules with query '{}' at URL: {}", query, url);
+
+        let response = self
+            .client
+            .get(&url)
+            .query(&[("q", query), ("limit", "20")])
+            .send()
+            .await?;
+        let status = response.status();
+
+        debug!("Module search response status: {}", status);
+
+        if status == 429 {
+            warn!("Rate limit exceeded for module search");
+            return Err(RegistryError::RateLimited);
+        }
+
+        if !status.is_success() {
+            error!("HTTP error {} for module search request", status);
+            return Err(RegistryError::HttpError(format!("HTTP {}", status)));
+        }
+
+        let response_text = response.text().await?;
+        debug!(
+            "Module search response (first 1000 chars): {}",
+            &response_text.chars().take(1000).collect::<String>()
+        );
+
+        match serde_json::from_str::<Value>(&response_text) {
+            Ok(json_value) => {
+                debug!("Parsed module search JSON structure");
+
+                match serde_json::from_value::<ModuleSearchResponse>(json_value.clone()) {
+                    Ok(search_response) => {
+                        if search_response.modules.is_empty() {
+                            info!("No module search results found for query: {}", query);
+                            return Err(RegistryError::NoSearchResults {
+                                query: query.to_string(),
+                            });
+                        }
+
+                        info!(
+                            "Found {} modules for query: {}",
+                            search_response.modules.len(),
+                            query
+                        );
+                        Ok(search_response.modules)
+                    }
+                    Err(e) => {
+                        error!("Failed to deserialize module search response: {}", e);
+
+                        // Try manual extraction
+                        if let Some(modules_array) =
+                            json_value.get("modules").and_then(|v| v.as_array())
+                        {
+                            let modules = self.extract_modules_from_array(modules_array);
+                            if !modules.is_empty() {
+                                warn!("Using fallback module search parsing");
+                                return Ok(modules);
+                            }
+                        }
+
+                        Err(RegistryError::JsonError(format!(
+                            "Failed to parse module search response: {}",
+                            e
+                        )))
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to parse module search JSON: {}", e);
+                Err(RegistryError::JsonError(format!(
+                    "Invalid JSON response: {}",
+                    e
+                )))
+            }
+        }
+    }
+
+    /// Helper function to extract modules from JSON array
+    fn extract_modules_from_array(&self, modules_array: &[Value]) -> Vec<ModuleInfo> {
+        modules_array
+            .iter()
+            .filter_map(|module| {
+                let id = module
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                if id.is_empty() {
+                    return None;
+                }
+
+                Some(ModuleInfo {
+                    id,
+                    namespace: module
+                        .get("namespace")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    name: module
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    provider: module
+                        .get("provider")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    version: module
+                        .get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    description: module
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    source: module
+                        .get("source")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    published_at: module
+                        .get("published_at")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    downloads: module
+                        .get("downloads")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0),
+                    verified: module
+                        .get("verified")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    owner: module
+                        .get("owner")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    extra: HashMap::new(),
+                })
+            })
+            .collect()
+    }
+
+    /// Get module details by namespace, name, and provider
+    pub async fn get_module_details(
+        &self,
+        namespace: &str,
+        name: &str,
+        provider: &str,
+        version: Option<&str>,
+    ) -> Result<ModuleDetails, RegistryError> {
+        let url = match version {
+            Some(ver) => format!(
+                "{}/v1/modules/{}/{}/{}/{}",
+                self.base_url, namespace, name, provider, ver
+            ),
+            None => format!(
+                "{}/v1/modules/{}/{}/{}",
+                self.base_url, namespace, name, provider
+            ),
+        };
+
+        debug!("Fetching module details from URL: {}", url);
+
+        let response = self.client.get(&url).send().await?;
+        let status = response.status();
+
+        debug!("Module details response status: {}", status);
+
+        if status == 404 {
+            warn!("Module not found: {}/{}/{}", namespace, name, provider);
+            return Err(RegistryError::ModuleNotFound {
+                module: name.to_string(),
+                provider: provider.to_string(),
+                namespace: namespace.to_string(),
+            });
+        }
+
+        if status == 429 {
+            warn!("Rate limit exceeded for module details request");
+            return Err(RegistryError::RateLimited);
+        }
+
+        if !status.is_success() {
+            error!("HTTP error {} for module details request", status);
+            return Err(RegistryError::HttpError(format!("HTTP {}", status)));
+        }
+
+        let response_text = response.text().await?;
+        debug!(
+            "Module details response (first 1000 chars): {}",
+            &response_text.chars().take(1000).collect::<String>()
+        );
+
+        match serde_json::from_str::<Value>(&response_text) {
+            Ok(json_value) => {
+                match serde_json::from_value::<ModuleDetails>(json_value.clone()) {
+                    Ok(module_details) => {
+                        info!(
+                            "Successfully retrieved module details for {}/{}/{}",
+                            namespace, name, provider
+                        );
+                        Ok(module_details)
+                    }
+                    Err(e) => {
+                        error!("Failed to deserialize module details: {}", e);
+
+                        // Try manual extraction for essential fields
+                        let module_details = ModuleDetails {
+                            id: json_value
+                                .get("id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            namespace: json_value
+                                .get("namespace")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(namespace)
+                                .to_string(),
+                            name: json_value
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(name)
+                                .to_string(),
+                            provider: json_value
+                                .get("provider")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(provider)
+                                .to_string(),
+                            version: json_value
+                                .get("version")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            description: json_value
+                                .get("description")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            source: json_value
+                                .get("source")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            published_at: json_value
+                                .get("published_at")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            downloads: json_value
+                                .get("downloads")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0),
+                            verified: json_value
+                                .get("verified")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                            root: None,
+                            submodules: vec![],
+                            versions: vec![],
+                            extra: HashMap::new(),
+                        };
+
+                        warn!("Using fallback module details parsing");
+                        Ok(module_details)
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to parse module details JSON: {}", e);
+                Err(RegistryError::JsonError(format!(
+                    "Invalid JSON response: {}",
+                    e
+                )))
+            }
+        }
+    }
+
+    /// Get all versions available for a module
+    pub async fn get_module_versions(
+        &self,
+        namespace: &str,
+        name: &str,
+        provider: &str,
+    ) -> Result<Vec<String>, RegistryError> {
+        let url = format!(
+            "{}/v1/modules/{}/{}/{}/versions",
+            self.base_url, namespace, name, provider
+        );
+
+        debug!("Fetching module versions from URL: {}", url);
+
+        let response = self.client.get(&url).send().await?;
+        let status = response.status();
+
+        debug!("Module versions response status: {}", status);
+
+        if status == 404 {
+            warn!(
+                "Module versions not found: {}/{}/{}",
+                namespace, name, provider
+            );
+            return Err(RegistryError::ModuleNotFound {
+                module: name.to_string(),
+                provider: provider.to_string(),
+                namespace: namespace.to_string(),
+            });
+        }
+
+        if status == 429 {
+            warn!("Rate limit exceeded for module versions request");
+            return Err(RegistryError::RateLimited);
+        }
+
+        if !status.is_success() {
+            error!("HTTP error {} for module versions request", status);
+            return Err(RegistryError::HttpError(format!("HTTP {}", status)));
+        }
+
+        let response_text = response.text().await?;
+        debug!(
+            "Module versions response (first 500 chars): {}",
+            &response_text.chars().take(500).collect::<String>()
+        );
+
+        match serde_json::from_str::<Value>(&response_text) {
+            Ok(json_value) => {
+                // Try to parse as ModuleVersionsResponse
+                if let Ok(versions_response) =
+                    serde_json::from_value::<ModuleVersionsResponse>(json_value.clone())
+                {
+                    let versions: Vec<String> = versions_response
+                        .modules
+                        .into_iter()
+                        .flat_map(|m| m.versions.into_iter().map(|v| v.version))
+                        .filter(|v| !v.is_empty())
+                        .collect();
+
+                    if versions.is_empty() {
+                        warn!(
+                            "No versions available for module {}/{}/{}",
+                            namespace, name, provider
+                        );
+                        return Err(RegistryError::NoModuleVersionsAvailable {
+                            module: format!("{}/{}/{}", namespace, name, provider),
+                        });
+                    }
+
+                    info!(
+                        "Found {} versions for module {}/{}/{}",
+                        versions.len(),
+                        namespace,
+                        name,
+                        provider
+                    );
+                    return Ok(versions);
+                }
+
+                // Fallback: try to extract versions directly
+                if let Some(modules_array) = json_value.get("modules").and_then(|v| v.as_array()) {
+                    let versions: Vec<String> = modules_array
+                        .iter()
+                        .filter_map(|m| m.get("versions").and_then(|v| v.as_array()))
+                        .flatten()
+                        .filter_map(|v| v.get("version").and_then(|ver| ver.as_str()))
+                        .map(|s| s.to_string())
+                        .collect();
+
+                    if !versions.is_empty() {
+                        warn!("Using fallback module versions parsing");
+                        return Ok(versions);
+                    }
+                }
+
+                Err(RegistryError::NoModuleVersionsAvailable {
+                    module: format!("{}/{}/{}", namespace, name, provider),
+                })
+            }
+            Err(e) => {
+                error!("Failed to parse module versions JSON: {}", e);
+                Err(RegistryError::JsonError(format!(
+                    "Invalid JSON response: {}",
+                    e
+                )))
+            }
+        }
+    }
+
+    /// Get the latest version of a module
+    pub async fn get_latest_module_version(
+        &self,
+        namespace: &str,
+        name: &str,
+        provider: &str,
+    ) -> Result<String, RegistryError> {
+        // The latest version is returned when fetching module details without a version
+        let details = self
+            .get_module_details(namespace, name, provider, None)
+            .await?;
+
+        if details.version.is_empty() {
+            // If version is empty, try fetching versions list
+            let versions = self.get_module_versions(namespace, name, provider).await?;
+            versions
+                .into_iter()
+                .next()
+                .ok_or_else(|| RegistryError::NoModuleVersionsAvailable {
+                    module: format!("{}/{}/{}", namespace, name, provider),
+                })
+        } else {
+            Ok(details.version)
+        }
     }
 }
