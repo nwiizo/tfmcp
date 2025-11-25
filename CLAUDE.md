@@ -249,11 +249,21 @@ docker run -it -v /path/to/terraform:/app/terraform tfmcp --dir /app/terraform
 
 ## Release Process
 
+**Note**: Automated CI release is disabled. Use manual release process:
+
 1. Update version in `Cargo.toml`
-2. Run tests: `cargo test --locked --all-features`
-3. Build and test: `cargo build --release --locked --all-features`
-4. Create release with `./Release.sh`
-5. Publish to crates.io: `cargo publish`
+2. Run quality checks:
+   ```bash
+   cargo fmt --all
+   cargo clippy --all-targets --all-features
+   cargo test --all-features
+   ```
+3. Build release: `cargo build --release`
+4. Commit and push changes
+5. Create GitHub release: `gh release create v0.1.x --title "v0.1.x - Title" --notes "Release notes"`
+6. Publish to crates.io: `cargo publish`
+
+To re-enable automated release in CI, remove `false &&` from `.github/workflows/rust.yml` release job's `if` condition.
 
 ## Logs and Debugging
 

@@ -297,9 +297,23 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Run quality checks before committing:
+   ```bash
+   cargo fmt --all
+   cargo clippy --all-targets --all-features
+   cargo test --all-features
+   ```
+4. Commit your changes (`git commit -m 'Add some amazing feature'`)
+5. Push to the branch (`git push origin feature/amazing-feature`)
+6. Open a Pull Request
+
+### Release Process
+
+Releases are done manually (automated CI release is disabled):
+
+1. Update version in `Cargo.toml`
+2. Create GitHub release: `gh release create v0.1.x --title "v0.1.x - Title" --notes "Release notes"`
+3. Publish to crates.io: `cargo publish`
 
 ## Roadmap
 
