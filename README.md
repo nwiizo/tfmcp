@@ -18,39 +18,49 @@ See tfmcp in action with Claude Desktop:
 
 ## 🎉 Latest Release
 
-The latest version of tfmcp (v0.1.3) is now available on Crates.io! You can easily install it using Cargo:
+The latest version of tfmcp (v0.1.6) is now available on Crates.io! You can easily install it using Cargo:
 
 ```bash
 cargo install tfmcp
 ```
 
-### 🆕 What's New in v0.1.3
-- **🔐 Comprehensive Security System**: Production-ready security controls with audit logging
-- **📊 Enhanced Terraform Analysis**: Detailed validation and best practice recommendations  
-- **🛡️ Access Controls**: File pattern-based restrictions and resource limits
-- **📝 Audit Logging**: Complete operation tracking for compliance and monitoring
+### 🆕 What's New in v0.1.6
+- **🔬 Module Health Analysis**: Whitebox IaC approach with cohesion/coupling metrics
+- **📊 Resource Dependency Graph**: Visualize resource relationships and dependencies
+- **🛠️ Refactoring Suggestions**: Actionable recommendations with migration steps
+- **📦 Module Registry Support**: Search and explore Terraform modules
+- **📚 MCP Resources**: Built-in style guides and best practices documentation
 
 ## Features
 
-- 🚀 **Terraform Integration**  
+- 🚀 **Terraform Integration**
   Deeply integrates with the Terraform CLI to analyze and execute operations.
 
-- 📄 **MCP Server Capabilities**  
+- 📄 **MCP Server Capabilities**
   Runs as a Model Context Protocol server, allowing AI assistants to access and manage Terraform.
 
-- 🔐 **Enterprise Security**  
+- 🔬 **Module Health Analysis**
+  Whitebox approach to Infrastructure as Code with cohesion/coupling analysis, health scoring, and refactoring suggestions based on software engineering principles.
+
+- 📊 **Resource Dependency Graph**
+  Visualize resource relationships including explicit depends_on and implicit reference dependencies.
+
+- 📦 **Module Registry Integration**
+  Search and explore Terraform modules from the registry, get module details and versions.
+
+- 🔐 **Enterprise Security**
   Production-ready security controls with configurable policies, audit logging, and access restrictions.
 
-- 📊 **Advanced Analysis**  
+- 📊 **Advanced Analysis**
   Detailed Terraform configuration analysis with best practice recommendations and security checks.
 
-- ⚡️ **Blazing Fast**  
+- ⚡️ **Blazing Fast**
   High-speed processing powered by the Rust ecosystem with optimized parsing and caching.
 
-- 🛠️ **Automatic Setup**  
+- 🛠️ **Automatic Setup**
   Automatically creates sample Terraform projects when needed, ensuring smooth operation even for new users.
 
-- 🐳 **Docker Support**  
+- 🐳 **Docker Support**
   Run tfmcp in a containerized environment with all dependencies pre-installed.
 
 ## Installation
@@ -185,6 +195,44 @@ If you're using Docker with Claude Desktop, you can set up the configuration lik
 
 5. tfmcp will automatically create a sample Terraform project in `~/terraform` if one doesn't exist, ensuring Claude can start working with Terraform right away. The sample project is based on the examples included in the `example/demo` directory of this repository.
 
+## MCP Tools
+
+tfmcp provides the following MCP tools for AI assistants:
+
+### Core Terraform Operations
+| Tool | Description |
+|------|-------------|
+| `terraform_init` | Initialize Terraform working directory |
+| `terraform_plan` | Generate and show execution plan |
+| `terraform_apply` | Apply Terraform configuration |
+| `terraform_destroy` | Destroy Terraform-managed infrastructure |
+| `terraform_validate` | Validate configuration syntax |
+| `terraform_state` | Show current state |
+| `list_resources` | List all managed resources |
+| `set_terraform_directory` | Change active project directory |
+
+### Module Health Analysis (v0.1.6)
+| Tool | Description |
+|------|-------------|
+| `analyze_module_health` | Analyze module health with cohesion/coupling metrics, health score (0-100), issues detection, and recommendations |
+| `get_resource_dependency_graph` | Build resource dependency graph showing nodes, edges (explicit/implicit), and module boundaries |
+| `suggest_module_refactoring` | Generate refactoring suggestions (SplitModule, WrapPublicModule, AddDescriptions, FlattenHierarchy) with migration steps |
+
+### Module Registry
+| Tool | Description |
+|------|-------------|
+| `search_terraform_modules` | Search Terraform modules in the registry |
+| `get_module_details` | Get detailed information about a module |
+| `get_latest_module_version` | Get the latest version of a module |
+| `get_latest_provider_version` | Get the latest version of a provider |
+
+### Provider Information
+| Tool | Description |
+|------|-------------|
+| `search_providers` | Search Terraform providers |
+| `get_provider_details` | Get detailed provider information |
+| `list_provider_versions` | List available provider versions |
+
 ## Logs and Troubleshooting
 
 The tfmcp server logs are available at:
@@ -285,21 +333,27 @@ Here are some planned improvements and future features for tfmcp:
 - [x] **Docker Support**  
   Added containerization support for easier deployment and cross-platform compatibility.
 
-- [x] **Security Enhancements**  
+- [x] **Security Enhancements**
   Comprehensive security system with configurable policies, audit logging, access controls, and production-ready safety features.
 
+- [x] **Module Health Analysis (v0.1.6)**
+  Whitebox approach to IaC with cohesion/coupling metrics, health scoring, and refactoring suggestions.
+
+- [x] **Resource Dependency Graph (v0.1.6)**
+  Visualization of resource relationships including explicit and implicit dependencies.
+
+- [x] **Module Registry Integration (v0.1.6)**
+  Search and explore Terraform modules from the registry.
+
+- [x] **Comprehensive Testing Framework**
+  74+ tests including integration tests with real Terraform configurations.
+
 ### In Progress
-- [ ] **Enhanced Terraform Analysis**  
-  Implement deeper parsing and analysis of Terraform configurations, plans, and state files.
-
-- [ ] **Comprehensive Testing Framework**  
-  Expand test coverage including integration tests with real Terraform configurations.
-
-### Planned
-- [ ] **Multi-Environment Support**  
+- [ ] **Multi-Environment Support**
   Add support for managing multiple Terraform environments, workspaces, and modules.
 
-- [ ] **Expanded MCP Protocol Support**  
+### Planned
+- [ ] **Expanded MCP Protocol Support**
   Implement additional MCP methods and capabilities for richer integration with AI assistants.
 
 - [ ] **Performance Optimization**  

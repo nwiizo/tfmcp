@@ -74,6 +74,7 @@ Our CI pipeline enforces strict quality standards:
    - `service.rs`: Terraform CLI operations (init, plan, apply, destroy, etc.)
    - `model.rs`: Data structures for Terraform responses and analysis
    - `parser.rs`: Parsing Terraform output and configurations
+   - `analyzer.rs`: Module health analysis with cohesion/coupling metrics (v0.1.6)
 
 4. **Registry Module** (`src/registry/`): Terraform Registry API integration
    - `client.rs`: HTTP client for Terraform Registry API
@@ -105,6 +106,9 @@ Our CI pipeline enforces strict quality standards:
 - **Fallback Strategy**: Multi-namespace provider resolution with automatic retries
 - **Security by Default**: Operations like apply/destroy are disabled unless explicitly enabled
 - **Auto-Bootstrap**: Creates sample Terraform projects when none exist
+- **Module Health Analysis (v0.1.6)**: Whitebox IaC approach with cohesion/coupling metrics
+- **Resource Dependency Graph (v0.1.6)**: Visualization of resource relationships
+- **Module Registry Integration (v0.1.6)**: Search and explore Terraform modules
 
 ## Configuration
 
@@ -137,6 +141,44 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   }
 }
 ```
+
+## MCP Tools Reference
+
+### Module Health Analysis Tools (v0.1.6)
+
+These tools implement a whitebox approach to Infrastructure as Code analysis:
+
+1. **`analyze_module_health`**
+   - Calculates health score (0-100)
+   - Analyzes cohesion type: Functional, Sequential, Communicational, Procedural, Temporal, Logical, Coincidental
+   - Analyzes coupling type: Data, Stamp, Control, Common, Content
+   - Detects issues: ExcessiveVariables, LogicalCohesion, DeepHierarchy, MissingDocumentation, PublicModuleRisk
+   - Generates recommendations
+
+2. **`get_resource_dependency_graph`**
+   - Creates nodes for each resource
+   - Identifies edges: Explicit (depends_on), Implicit (references), DataSource, ModuleOutput
+   - Groups resources by module boundaries
+
+3. **`suggest_module_refactoring`**
+   - SplitModule: Extract resources to new module
+   - WrapPublicModule: Create org-specific wrapper for public modules
+   - AddDescriptions: Document variables/outputs
+   - FlattenHierarchy: Reduce nesting depth
+   - Each suggestion includes migration steps
+
+### Module Registry Tools (v0.1.6)
+
+- `search_terraform_modules`: Search modules in registry
+- `get_module_details`: Get module information
+- `get_latest_module_version`: Get latest version
+- `get_latest_provider_version`: Get provider's latest version
+
+### Core Terraform Tools
+
+- `terraform_init`, `terraform_plan`, `terraform_apply`, `terraform_destroy`
+- `terraform_validate`, `terraform_state`, `list_resources`
+- `set_terraform_directory`: Change active project
 
 ## Development Guidelines
 
