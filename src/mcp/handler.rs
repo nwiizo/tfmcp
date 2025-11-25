@@ -1704,7 +1704,8 @@ impl<'a> McpHandler<'a> {
 
         match self.tfmcp.apply_terraform(auto_approve).await {
             Ok(result) => {
-                let result_json = json!({ "result": result });
+                // Use "output" field to match outputSchema definition
+                let result_json = json!({ "output": result });
                 let obj_as_str = serde_json::to_string(&result_json)?;
                 self.send_text_response(transport, id, &obj_as_str).await?;
             }
@@ -1817,7 +1818,8 @@ impl<'a> McpHandler<'a> {
     ) -> anyhow::Result<()> {
         match self.tfmcp.init_terraform().await {
             Ok(result) => {
-                let result_json = json!({ "result": result });
+                // Use "output" field to match outputSchema definition
+                let result_json = json!({ "output": result });
                 let obj_as_str = serde_json::to_string(&result_json)?;
                 self.send_text_response(transport, id, &obj_as_str).await?;
             }
