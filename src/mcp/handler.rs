@@ -617,6 +617,10 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["resources"]
+      },
+      "annotations": {
+        "title": "List Terraform Resources",
+        "readOnlyHint": true
       }
     },
     {
@@ -640,6 +644,10 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["output"]
+      },
+      "annotations": {
+        "title": "Destroy Terraform",
+        "destructiveHint": true
       }
     },
     {
@@ -684,6 +692,10 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["analysis"]
+      },
+      "annotations": {
+        "title": "Analyze Terraform",
+        "readOnlyHint": true
       }
     },
     {
@@ -702,6 +714,10 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["plan"]
+      },
+      "annotations": {
+        "title": "Get Terraform Plan",
+        "readOnlyHint": true
       }
     },
     {
@@ -725,6 +741,10 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["output"]
+      },
+      "annotations": {
+        "title": "Apply Terraform",
+        "destructiveHint": true
       }
     },
     {
@@ -747,6 +767,10 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["valid", "message"]
+      },
+      "annotations": {
+        "title": "Validate Terraform",
+        "readOnlyHint": true
       }
     },
     {
@@ -835,6 +859,10 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["valid", "error_count", "warning_count", "diagnostics", "additional_warnings", "suggestions", "checked_files"]
+      },
+      "annotations": {
+        "title": "Validate Terraform Detailed",
+        "readOnlyHint": true
       }
     },
     {
@@ -853,6 +881,10 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["state"]
+      },
+      "annotations": {
+        "title": "Get Terraform State",
+        "readOnlyHint": true
       }
     },
     {
@@ -871,6 +903,11 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["output"]
+      },
+      "annotations": {
+        "title": "Initialize Terraform",
+        "destructiveHint": true,
+        "idempotentHint": true
       }
     },
     {
@@ -897,6 +934,10 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["policy", "permissions", "audit_enabled"]
+      },
+      "annotations": {
+        "title": "Get Security Status",
+        "readOnlyHint": true
       }
     },
     {
@@ -929,6 +970,11 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["providers"]
+      },
+      "annotations": {
+        "title": "Search Terraform Providers",
+        "readOnlyHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -957,6 +1003,11 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["provider"]
+      },
+      "annotations": {
+        "title": "Get Provider Info",
+        "readOnlyHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -1002,6 +1053,11 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["documentation"]
+      },
+      "annotations": {
+        "title": "Get Provider Docs",
+        "readOnlyHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -1034,6 +1090,11 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["success", "directory", "message"]
+      },
+      "annotations": {
+        "title": "Set Terraform Directory",
+        "destructiveHint": true,
+        "idempotentHint": true
       }
     },
     {
@@ -1070,6 +1131,11 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["modules"]
+      },
+      "annotations": {
+        "title": "Search Terraform Modules",
+        "readOnlyHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -1106,6 +1172,11 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["module"]
+      },
+      "annotations": {
+        "title": "Get Module Details",
+        "readOnlyHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -1142,6 +1213,11 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["version", "module_id"]
+      },
+      "annotations": {
+        "title": "Get Latest Module Version",
+        "readOnlyHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -1178,6 +1254,11 @@ const TOOLS_JSON: &str = r#"{
           }
         },
         "required": ["version", "namespace", "provider_id"]
+      },
+      "annotations": {
+        "title": "Get Latest Provider Version",
+        "readOnlyHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -1214,6 +1295,10 @@ const TOOLS_JSON: &str = r#"{
             "description": "Coupling type (Data, Control, etc.) and dependencies"
           }
         }
+      },
+      "annotations": {
+        "title": "Analyze Module Health",
+        "readOnlyHint": true
       }
     },
     {
@@ -1240,6 +1325,10 @@ const TOOLS_JSON: &str = r#"{
             "description": "Module groupings for visualization"
           }
         }
+      },
+      "annotations": {
+        "title": "Get Resource Dependency Graph",
+        "readOnlyHint": true
       }
     },
     {
@@ -1267,6 +1356,10 @@ const TOOLS_JSON: &str = r#"{
             }
           }
         }
+      },
+      "annotations": {
+        "title": "Suggest Module Refactoring",
+        "readOnlyHint": true
       }
     }
   ]
