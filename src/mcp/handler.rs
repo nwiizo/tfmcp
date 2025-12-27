@@ -906,7 +906,7 @@ const TOOLS_JSON: &str = r#"{
       },
       "annotations": {
         "title": "Initialize Terraform",
-        "destructiveHint": true,
+        "openWorldHint": true,
         "idempotentHint": true
       }
     },
@@ -1093,7 +1093,6 @@ const TOOLS_JSON: &str = r#"{
       },
       "annotations": {
         "title": "Set Terraform Directory",
-        "destructiveHint": true,
         "idempotentHint": true
       }
     },
