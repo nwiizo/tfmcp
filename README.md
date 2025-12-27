@@ -1,5 +1,7 @@
 # tfmcp: Terraform Model Context Protocol Tool
 
+[![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/nwiizo/tfmcp)](https://archestra.ai/mcp-catalog/nwiizo__tfmcp)
+
 *⚠️  This project includes production-ready security features but is still under active development. While the security system provides robust protection, please review all operations carefully in production environments. ⚠️*
 
 tfmcp is a command-line tool that helps you interact with Terraform via the Model Context Protocol (MCP). It allows LLMs to manage and operate your Terraform environments, including:
