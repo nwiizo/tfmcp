@@ -8,26 +8,6 @@ use crate::terraform::parser::TerraformParser;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-#[allow(dead_code)]
-pub enum TerraformError {
-    #[error("Terraform command failed: {0}")]
-    CommandError(String),
-
-    #[error("Terraform binary not found at path: {0}")]
-    BinaryNotFound(String),
-
-    #[error("Invalid JSON output: {0}")]
-    JsonParseError(String),
-
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
-
-    #[error("Terraform init required")]
-    InitRequired,
-}
 
 pub struct TerraformService {
     terraform_path: PathBuf,
@@ -55,15 +35,6 @@ impl TerraformService {
             project_directory,
             security_manager,
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn set_project_directory(&mut self, directory: PathBuf) {
-        eprintln!(
-            "[DEBUG] Setting project directory to: {}",
-            directory.display()
-        );
-        self.project_directory = directory;
     }
 
     pub fn change_project_directory(&mut self, directory: PathBuf) -> anyhow::Result<()> {

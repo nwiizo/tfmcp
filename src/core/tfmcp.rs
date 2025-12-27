@@ -4,36 +4,53 @@ use crate::mcp::stdio::StdioTransport;
 use crate::shared::logging;
 use crate::terraform::model::{DetailedValidationResult, TerraformAnalysis};
 use crate::terraform::service::TerraformService;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Sample Terraform configuration template for auto-bootstrap
+const SAMPLE_TERRAFORM_CONTENT: &str = r#"# This is a sample Terraform file created by tfmcp
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+
+resource "local_file" "example" {
+  content  = "Hello from tfmcp!"
+  filename = "${path.module}/example.txt"
+}
+"#;
+
+/// Creates a sample main.tf file if it doesn't exist
+fn create_sample_terraform_file(dir: &Path) -> std::io::Result<()> {
+    let main_tf_path = dir.join("main.tf");
+    if !main_tf_path.exists() {
+        logging::info(&format!(
+            "Creating sample Terraform file at: {}",
+            main_tf_path.display()
+        ));
+        std::fs::write(&main_tf_path, SAMPLE_TERRAFORM_CONTENT)?;
+    }
+    Ok(())
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum TfMcpError {
     #[error("Terraform binary not found")]
     TerraformNotFound,
 
-    #[error("Invalid Terraform project directory: {0}")]
-    #[allow(dead_code)]
-    InvalidProjectDirectory(String),
-
-    #[error("Error running Terraform command: {0}")]
-    #[allow(dead_code)]
-    TerraformCommandError(String),
-
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
-#[derive(Debug)]
-#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
 pub enum JsonRpcErrorCode {
-    ParseError = -32700,
     InvalidRequest = -32600,
     MethodNotFound = -32601,
     InvalidParams = -32602,
     InternalError = -32603,
-    // Custom error codes should be in the range -32000 to -32099
-    TerraformNotFound = -32000,
-    InvalidProjectDirectory = -32001,
 }
 
 pub struct TfMcp {
@@ -224,27 +241,7 @@ impl TfMcp {
             }
 
             // Create a sample main.tf file
-            let main_tf_path = project_directory.join("main.tf");
-            logging::info(&format!(
-                "Creating sample Terraform file at: {}",
-                main_tf_path.display()
-            ));
-            let sample_tf_content = r#"# This is a sample Terraform file created by tfmcp
-terraform {
-  required_providers {
-    local = {
-      source  = "hashicorp/local"
-      version = "~> 2.0"
-    }
-  }
-}
-
-resource "local_file" "example" {
-  content  = "Hello from tfmcp!"
-  filename = "${path.module}/example.txt"
-}
-"#;
-            std::fs::write(&main_tf_path, sample_tf_content)?;
+            create_sample_terraform_file(&project_directory)?;
         }
 
         let terraform_service = TerraformService::new(terraform_path, project_directory);
@@ -282,29 +279,7 @@ resource "local_file" "example" {
             }
 
             // Create a sample Terraform file to ensure valid Terraform directory
-            let main_tf_path = default_tf_dir.join("main.tf");
-            if !main_tf_path.exists() {
-                logging::info(&format!(
-                    "Creating sample Terraform file at: {}",
-                    main_tf_path.display()
-                ));
-                let sample_tf_content = r#"# This is a sample Terraform file created by tfmcp
-terraform {
-  required_providers {
-    local = {
-      source  = "hashicorp/local"
-      version = "~> 2.0"
-    }
-  }
-}
-
-resource "local_file" "example" {
-  content  = "Hello from tfmcp!"
-  filename = "${path.module}/example.txt"
-}
-"#;
-                std::fs::write(&main_tf_path, sample_tf_content)?;
-            }
+            create_sample_terraform_file(&default_tf_dir)?;
 
             // Set the environment variable for future uses in this process
             std::env::set_var(
@@ -427,29 +402,7 @@ resource "local_file" "example" {
                 "No Terraform (.tf) files found in {}. Creating a sample project.",
                 project_directory.display()
             ));
-
-            // サンプルのmain.tfファイルを作成
-            let main_tf_path = project_directory.join("main.tf");
-            logging::info(&format!(
-                "Creating sample Terraform file at: {}",
-                main_tf_path.display()
-            ));
-            let sample_tf_content = r#"# This is a sample Terraform file created by tfmcp
-terraform {
-  required_providers {
-    local = {
-      source  = "hashicorp/local"
-      version = "~> 2.0"
-    }
-  }
-}
-
-resource "local_file" "example" {
-  content  = "Hello from tfmcp!"
-  filename = "${path.module}/example.txt"
-}
-"#;
-            std::fs::write(&main_tf_path, sample_tf_content)?;
+            create_sample_terraform_file(&project_directory)?;
         }
 
         // TerraformServiceのプロジェクトディレクトリを変更
