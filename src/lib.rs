@@ -45,16 +45,16 @@ pub mod core {
 }
 
 pub mod mcp {
-    pub mod handler;
-    pub mod stdio;
+    pub mod resources;
+    pub mod server;
+    pub mod types;
 }
 
 pub mod config;
 
 // Re-export commonly used types for easier testing and external use
 pub use core::tfmcp::TfMcp;
-pub use mcp::handler::McpHandler;
-pub use mcp::stdio::{Message, StdioTransport};
+pub use mcp::server::TfMcpServer;
 pub use registry::cache::CacheManager;
 pub use registry::provider::ProviderResolver;
 pub use terraform::model;

@@ -7,8 +7,9 @@ mod registry;
 mod shared;
 mod terraform;
 
-use clap::{arg, command, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use core::tfmcp::TfMcp;
+use mcp::server::TfMcpServer;
 use shared::logging;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -71,8 +72,8 @@ async fn main() {
             Commands::Mcp => {
                 logging::info("Starting tfmcp in MCP server mode");
                 match init_tfmcp(&cli).await {
-                    Ok(mut tfmcp) => {
-                        if let Err(err) = tfmcp.launch_mcp().await {
+                    Ok(tfmcp) => {
+                        if let Err(err) = TfMcpServer::serve_stdio(tfmcp).await {
                             logging::error(&format!("Error launching MCP server: {:?}", err));
                             std::process::exit(1);
                         }

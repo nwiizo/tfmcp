@@ -94,32 +94,13 @@ mod compilation_tests {
     }
 
     #[test]
-    fn test_stdio_transport_types() {
-        use serde_json::json;
-        use tfmcp::mcp::stdio::Message;
+    fn test_mcp_server_types() {
+        use tfmcp::mcp::server::TfMcpServer;
 
-        // Test that Message enum variants compile
-        let _request = Message::Request {
-            jsonrpc: "2.0".to_string(),
-            id: 1,
-            method: "test".to_string(),
-            params: Some(json!({})),
-        };
-
-        let _response = Message::Response {
-            jsonrpc: "2.0".to_string(),
-            id: 1,
-            result: Some(json!({"status": "ok"})),
-            error: None,
-        };
-
-        let _notification = Message::Notification {
-            jsonrpc: "2.0".to_string(),
-            method: "test".to_string(),
-            params: Some(json!({})),
-        };
-
-        // Note: StdioTransport::new() requires tokio runtime, so we skip it in sync tests
+        // Test that TfMcpServer type is available
+        // Note: We can't create it here without TfMcp, but we verify the type exists
+        let _ = std::any::type_name::<TfMcpServer>();
+        println!("TfMcpServer type is available");
     }
 
     #[test]

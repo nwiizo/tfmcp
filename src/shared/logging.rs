@@ -1,8 +1,5 @@
 use chrono::Local;
-use serde_json::json;
 use std::fmt::Display;
-
-use crate::mcp::stdio::{Message, Transport};
 
 #[derive(Debug, Clone, Copy)]
 pub enum LogLevel {
@@ -47,36 +44,4 @@ pub fn warn(message: &str) {
 /// Log error level message
 pub fn error(message: &str) {
     log(LogLevel::Error, message);
-}
-
-/// Send a log message to the client via MCP
-pub async fn send_log_message<T: Transport>(
-    transport: &T,
-    level: LogLevel,
-    message: &str,
-) -> Result<(), crate::mcp::stdio::Error> {
-    // Create a log notification as per MCP protocol
-    let log_notification = Message::Notification {
-        jsonrpc: "2.0".to_string(),
-        method: "$/log".to_string(),
-        params: Some(json!({
-            "level": level.to_string(),
-            "message": message
-        })),
-    };
-
-    transport.send(log_notification).await
-}
-
-/// Log a message both to stderr and to the client via MCP
-pub async fn log_both<T: Transport>(
-    transport: &T,
-    level: LogLevel,
-    message: &str,
-) -> Result<(), crate::mcp::stdio::Error> {
-    // Log to stderr
-    log(level, message);
-
-    // Send to client
-    send_log_message(transport, level, message).await
 }

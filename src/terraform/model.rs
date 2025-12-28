@@ -19,12 +19,14 @@ pub struct TerraformResource {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TerraformPlan {
     pub changes: TerraformChanges,
     pub raw_output: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TerraformChanges {
     pub add: usize,
     pub change: usize,
@@ -32,12 +34,14 @@ pub struct TerraformChanges {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TerraformState {
     pub resources: Vec<TerraformStateResource>,
     pub version: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TerraformStateResource {
     pub name: String,
     pub type_: String,
@@ -46,6 +50,7 @@ pub struct TerraformStateResource {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TerraformResourceInstance {
     pub id: String,
     pub attributes: serde_json::Value,
@@ -90,6 +95,50 @@ pub struct DetailedValidationResult {
     pub additional_warnings: Vec<String>,
     pub suggestions: Vec<String>,
     pub checked_files: usize,
+    /// Future Architect guideline compliance checks
+    pub guideline_checks: Option<GuidelineCheckResult>,
+}
+
+/// Results from Future Architect Terraform guideline compliance checks
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct GuidelineCheckResult {
+    /// Overall compliance score (0-100)
+    pub compliance_score: u8,
+    /// Variables missing type definition
+    pub variables_missing_type: Vec<String>,
+    /// Variables missing description
+    pub variables_missing_description: Vec<String>,
+    /// Outputs missing description
+    pub outputs_missing_description: Vec<String>,
+    /// Resources using count instead of for_each (not for 0/1 toggle)
+    pub count_instead_of_foreach: Vec<CountUsageWarning>,
+    /// Variables using 'any' type (discouraged)
+    pub any_type_usage: Vec<String>,
+    /// Providers missing version constraint
+    pub providers_missing_version: Vec<String>,
+    /// Resources missing default_tags (AWS)
+    pub missing_default_tags: bool,
+    /// Detected hardcoded secrets
+    pub hardcoded_secrets: Vec<SecretDetection>,
+    /// Resources missing lifecycle prevent_destroy for critical resources
+    pub missing_lifecycle_protection: Vec<String>,
+}
+
+/// Warning for count usage that should be for_each
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CountUsageWarning {
+    pub resource_name: String,
+    pub resource_type: String,
+    pub suggestion: String,
+}
+
+/// Detected potential secret in code
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SecretDetection {
+    pub file: String,
+    pub line: usize,
+    pub pattern: String,
+    pub severity: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

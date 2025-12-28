@@ -1,8 +1,8 @@
 use crate::shared::security::SecurityManager;
 use crate::terraform::analyzer;
 use crate::terraform::model::{
-    DetailedValidationResult, ModuleHealthAnalysis, RefactoringSuggestion, ResourceDependencyGraph,
-    TerraformAnalysis, TerraformValidateOutput,
+    DetailedValidationResult, GuidelineCheckResult, ModuleHealthAnalysis, RefactoringSuggestion,
+    ResourceDependencyGraph, TerraformAnalysis, TerraformValidateOutput,
 };
 use crate::terraform::parser::TerraformParser;
 use std::collections::HashMap;
@@ -291,6 +291,7 @@ impl TerraformService {
         // Additional validation checks
         let mut warnings = Vec::new();
         let mut suggestions = Vec::new();
+        let mut guideline_checks = None;
 
         // Check for .tf files in the directory
         let tf_files = self.find_terraform_files().await?;
@@ -301,18 +302,72 @@ impl TerraformService {
         // Analyze configuration for best practices
         if !tf_files.is_empty() {
             let analysis = self.analyze_configurations().await?;
+            let file_contents = self.read_file_contents().await?;
 
-            // Check for missing descriptions
-            for var in &analysis.variables {
-                if var.description.is_none()
-                    || var
-                        .description
-                        .as_ref()
-                        .map(|d| d.is_empty())
-                        .unwrap_or(false)
-                {
-                    suggestions.push(format!("Variable '{}' is missing a description", var.name));
-                }
+            // Run Future Architect guideline checks
+            let checks = analyzer::check_guidelines(&analysis, &file_contents);
+
+            // Add suggestions based on guideline checks
+            for var_name in &checks.variables_missing_type {
+                suggestions.push(format!(
+                    "[Guideline] Variable '{}' is missing a type definition",
+                    var_name
+                ));
+            }
+
+            for var_name in &checks.variables_missing_description {
+                suggestions.push(format!(
+                    "[Guideline] Variable '{}' is missing a description",
+                    var_name
+                ));
+            }
+
+            for output_name in &checks.outputs_missing_description {
+                suggestions.push(format!(
+                    "[Guideline] Output '{}' is missing a description",
+                    output_name
+                ));
+            }
+
+            for count_warning in &checks.count_instead_of_foreach {
+                suggestions.push(format!(
+                    "[Guideline] {}: {}",
+                    count_warning.resource_name, count_warning.suggestion
+                ));
+            }
+
+            for var_name in &checks.any_type_usage {
+                suggestions.push(format!(
+                    "[Guideline] Variable '{}' uses 'any' type - consider using a specific type",
+                    var_name
+                ));
+            }
+
+            for provider_name in &checks.providers_missing_version {
+                warnings.push(format!(
+                    "[Guideline] Provider '{}' is missing a version constraint",
+                    provider_name
+                ));
+            }
+
+            if checks.missing_default_tags {
+                warnings.push(
+                    "[Guideline] AWS provider is missing default_tags configuration".to_string(),
+                );
+            }
+
+            for secret in &checks.hardcoded_secrets {
+                warnings.push(format!(
+                    "[SECURITY] Potential {} detected in {}:{} (severity: {})",
+                    secret.pattern, secret.file, secret.line, secret.severity
+                ));
+            }
+
+            for resource_id in &checks.missing_lifecycle_protection {
+                suggestions.push(format!(
+                    "[Guideline] Critical resource '{}' is missing lifecycle.prevent_destroy",
+                    resource_id
+                ));
             }
 
             // Check for hardcoded values that should be variables
@@ -325,23 +380,7 @@ impl TerraformService {
                 }
             }
 
-            // Check for missing output descriptions
-            for output in &analysis.outputs {
-                if output.description.is_none()
-                    || output
-                        .description
-                        .as_ref()
-                        .map(|d| d.is_empty())
-                        .unwrap_or(false)
-                {
-                    suggestions.push(format!("Output '{}' is missing a description", output.name));
-                }
-            }
-
-            // Check for provider version constraints
-            if analysis.providers.iter().any(|p| p.version.is_none()) {
-                warnings.push("Some providers are missing version constraints".to_string());
-            }
+            guideline_checks = Some(checks);
         }
 
         Ok(DetailedValidationResult {
@@ -352,6 +391,7 @@ impl TerraformService {
             additional_warnings: warnings,
             suggestions,
             checked_files: tf_files.len(),
+            guideline_checks,
         })
     }
 
@@ -685,5 +725,31 @@ impl TerraformService {
         );
 
         Ok(suggestions)
+    }
+
+    /// Run security scan using guideline checks (secret detection, etc.)
+    pub async fn run_security_scan(&self) -> anyhow::Result<GuidelineCheckResult> {
+        eprintln!(
+            "[DEBUG] Running security scan in {}",
+            self.project_directory.display()
+        );
+
+        let tf_files = self.find_terraform_files().await?;
+        if tf_files.is_empty() {
+            return Ok(GuidelineCheckResult::default());
+        }
+
+        let analysis = self.analyze_configurations().await?;
+        let file_contents = self.read_file_contents().await?;
+
+        let checks = analyzer::check_guidelines(&analysis, &file_contents);
+
+        eprintln!(
+            "[INFO] Security scan complete: {} secrets found, compliance score: {}",
+            checks.hardcoded_secrets.len(),
+            checks.compliance_score
+        );
+
+        Ok(checks)
     }
 }

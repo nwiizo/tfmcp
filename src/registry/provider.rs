@@ -76,6 +76,7 @@ impl ProviderResolver {
     }
 
     /// Stage 2: Get provider documentation content by ID
+    #[allow(dead_code)]
     pub async fn get_provider_docs(&self, doc_id: &str) -> Result<String, RegistryError> {
         let cache_key = format!("doc:{}", doc_id);
 

@@ -1,6 +1,4 @@
 use crate::config::{self, Config};
-use crate::mcp::handler::McpHandler;
-use crate::mcp::stdio::StdioTransport;
 use crate::shared::logging;
 use crate::terraform::model::{DetailedValidationResult, TerraformAnalysis};
 use crate::terraform::service::TerraformService;
@@ -43,14 +41,6 @@ pub enum TfMcpError {
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum JsonRpcErrorCode {
-    InvalidRequest = -32600,
-    MethodNotFound = -32601,
-    InvalidParams = -32602,
-    InternalError = -32603,
 }
 
 pub struct TfMcp {
@@ -147,7 +137,7 @@ impl TfMcp {
                                 // If we're in root (/) directory and it's not a valid Terraform directory,
                                 // let's use HOME directory as fallback
                                 let current_dir = std::env::current_dir()?;
-                                if current_dir == PathBuf::from("/") {
+                                if current_dir == Path::new("/") {
                                     // We're likely running from Claude Desktop with undefined working dir
                                     let home_dir = dirs::home_dir().unwrap_or(current_dir.clone());
                                     let tf_dir = home_dir.join("terraform");
@@ -251,50 +241,6 @@ impl TfMcp {
             config,
             terraform_service,
         })
-    }
-
-    pub async fn launch_mcp(&mut self) -> anyhow::Result<()> {
-        let (transport, sender) = StdioTransport::new();
-
-        // Keep the sender alive to ensure the mpsc channel works
-        let _sender_guard = sender;
-
-        // Log environment information
-        let cwd = std::env::current_dir()?;
-        logging::info(&format!("Current working directory: {}", cwd.display()));
-
-        // Check if TERRAFORM_DIR environment variable is set, and if not, set it to a default
-        // location inside the user's home directory to avoid root directory issues
-        if std::env::var("TERRAFORM_DIR").is_err() {
-            let home_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-            let default_tf_dir = home_dir.join("terraform");
-
-            // Create the directory if it doesn't exist
-            if !default_tf_dir.exists() {
-                logging::info(&format!(
-                    "Creating default Terraform directory: {}",
-                    default_tf_dir.display()
-                ));
-                std::fs::create_dir_all(&default_tf_dir)?;
-            }
-
-            // Create a sample Terraform file to ensure valid Terraform directory
-            create_sample_terraform_file(&default_tf_dir)?;
-
-            // Set the environment variable for future uses in this process
-            std::env::set_var(
-                "TERRAFORM_DIR",
-                default_tf_dir.to_string_lossy().to_string(),
-            );
-            logging::info(&format!(
-                "Set TERRAFORM_DIR to: {}",
-                default_tf_dir.display()
-            ));
-        }
-
-        // Create the handler and launch MCP
-        let mut handler = McpHandler::new(self);
-        handler.launch_mcp(&transport).await
     }
 
     pub async fn analyze_terraform(&mut self) -> anyhow::Result<()> {
@@ -455,5 +401,12 @@ impl TfMcp {
         &self,
     ) -> anyhow::Result<Vec<crate::terraform::model::RefactoringSuggestion>> {
         self.terraform_service.suggest_refactoring().await
+    }
+
+    /// Run security scan (secret detection, guideline compliance)
+    pub async fn run_security_scan(
+        &self,
+    ) -> anyhow::Result<crate::terraform::model::GuidelineCheckResult> {
+        self.terraform_service.run_security_scan().await
     }
 }

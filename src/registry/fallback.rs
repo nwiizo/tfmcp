@@ -159,6 +159,7 @@ impl RegistryClientWithFallback {
     }
 
     /// Search for provider documentation with fallback
+    #[allow(dead_code)]
     pub async fn search_docs_with_fallback(
         &self,
         provider: &str,
