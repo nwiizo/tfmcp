@@ -78,3 +78,101 @@ pub struct ModuleVersionInput {
     /// Provider name
     pub provider: String,
 }
+
+// ==================== v0.1.9 New Input Types ====================
+
+/// Input for analyze_plan operation
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct AnalyzePlanInput {
+    /// Include risk assessment in the analysis (default: true)
+    #[serde(default = "default_true")]
+    pub include_risk: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Input for analyze_state operation
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct AnalyzeStateInput {
+    /// Filter by resource type (e.g., "aws_instance")
+    pub resource_type: Option<String>,
+    /// Enable drift detection (default: false)
+    #[serde(default)]
+    pub detect_drift: bool,
+}
+
+/// Input for workspace operations
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct WorkspaceInput {
+    /// Action to perform: list, show, new, select, delete
+    pub action: String,
+    /// Workspace name (required for new, select, delete)
+    pub name: Option<String>,
+}
+
+/// Input for terraform import
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ImportInput {
+    /// Resource type (e.g., "aws_instance")
+    pub resource_type: String,
+    /// Resource ID in the cloud provider
+    pub resource_id: String,
+    /// Name to use in Terraform configuration
+    pub name: String,
+    /// Execute the import (false = preview only)
+    #[serde(default)]
+    pub execute: bool,
+}
+
+/// Input for terraform fmt
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct FmtInput {
+    /// Check only, don't modify files
+    #[serde(default)]
+    pub check: bool,
+    /// Show diff of changes
+    #[serde(default)]
+    pub diff: bool,
+    /// Specific file to format (optional)
+    pub file: Option<String>,
+}
+
+/// Input for terraform graph
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GraphInput {
+    /// Graph type: "plan" or "apply" (optional)
+    pub graph_type: Option<String>,
+}
+
+/// Input for terraform output
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct OutputInput {
+    /// Specific output name (optional, returns all if not specified)
+    pub name: Option<String>,
+}
+
+/// Input for taint/untaint operations
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct TaintInput {
+    /// Action: "taint" or "untaint"
+    pub action: String,
+    /// Resource address (e.g., "aws_instance.example")
+    pub address: String,
+}
+
+/// Input for terraform refresh
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RefreshInput {
+    /// Target specific resource (optional)
+    pub target: Option<String>,
+}
+
+/// Input for terraform providers
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ProvidersInput {
+    /// Include lock file information (default: false)
+    #[serde(default)]
+    pub include_lock: bool,
+}

@@ -1,5 +1,5 @@
 use crate::registry::client::{DocIdResult, ProviderInfo};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 
 /// Output formatter for structured, user-friendly results

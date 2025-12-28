@@ -129,7 +129,10 @@ impl TfMcp {
                                 } else {
                                     // Convert to absolute path
                                     let abs_dir = std::env::current_dir()?.join(dir);
-                                    logging::info(&format!("Converting relative project directory from config to absolute: {}", abs_dir.display()));
+                                    logging::info(&format!(
+                                        "Converting relative project directory from config to absolute: {}",
+                                        abs_dir.display()
+                                    ));
                                     abs_dir
                                 }
                             }
@@ -141,10 +144,16 @@ impl TfMcp {
                                     // We're likely running from Claude Desktop with undefined working dir
                                     let home_dir = dirs::home_dir().unwrap_or(current_dir.clone());
                                     let tf_dir = home_dir.join("terraform");
-                                    logging::info(&format!("Working directory is root (/), falling back to home directory: {}", tf_dir.display()));
+                                    logging::info(&format!(
+                                        "Working directory is root (/), falling back to home directory: {}",
+                                        tf_dir.display()
+                                    ));
                                     tf_dir
                                 } else {
-                                    logging::info(&format!("No project directory specified, using current directory: {}", current_dir.display()));
+                                    logging::info(&format!(
+                                        "No project directory specified, using current directory: {}",
+                                        current_dir.display()
+                                    ));
                                     current_dir
                                 }
                             }
@@ -358,10 +367,15 @@ impl TfMcp {
         {
             Ok(_) => {
                 // 環境変数も更新
-                std::env::set_var(
-                    "TERRAFORM_DIR",
-                    project_directory.to_string_lossy().to_string(),
-                );
+                // SAFETY: This is called during initialization or when explicitly
+                // changing directories. At this point, the application is effectively
+                // single-threaded for this operation.
+                unsafe {
+                    std::env::set_var(
+                        "TERRAFORM_DIR",
+                        project_directory.to_string_lossy().to_string(),
+                    );
+                }
                 logging::info(&format!(
                     "Successfully changed project directory to: {}",
                     project_directory.display()
@@ -408,5 +422,99 @@ impl TfMcp {
         &self,
     ) -> anyhow::Result<crate::terraform::model::GuidelineCheckResult> {
         self.terraform_service.run_security_scan().await
+    }
+
+    // ==================== v0.1.9 New Methods ====================
+
+    /// Analyze terraform plan with risk scoring
+    pub async fn analyze_plan(
+        &self,
+        include_risk: bool,
+    ) -> anyhow::Result<crate::terraform::plan_analyzer::PlanAnalysis> {
+        self.terraform_service.analyze_plan(include_risk).await
+    }
+
+    /// Analyze terraform state with optional drift detection
+    pub async fn analyze_state(
+        &self,
+        resource_type: Option<&str>,
+        detect_drift: bool,
+    ) -> anyhow::Result<crate::terraform::state_analyzer::StateAnalysis> {
+        self.terraform_service
+            .analyze_state(resource_type, detect_drift)
+            .await
+    }
+
+    /// Execute workspace operations
+    pub async fn workspace(
+        &self,
+        action: &str,
+        name: Option<&str>,
+    ) -> anyhow::Result<crate::terraform::workspace::WorkspaceResult> {
+        self.terraform_service.workspace(action, name).await
+    }
+
+    /// Import a resource
+    pub async fn import_resource(
+        &self,
+        resource_type: &str,
+        resource_id: &str,
+        name: &str,
+        execute: bool,
+    ) -> anyhow::Result<serde_json::Value> {
+        self.terraform_service
+            .import_resource(resource_type, resource_id, name, execute)
+            .await
+    }
+
+    /// Format terraform files
+    pub async fn fmt(
+        &self,
+        check: bool,
+        diff: bool,
+        file: Option<&str>,
+    ) -> anyhow::Result<crate::terraform::fmt::FormatResult> {
+        self.terraform_service.fmt(check, diff, file).await
+    }
+
+    /// Generate dependency graph
+    pub async fn graph(
+        &self,
+        graph_type: Option<&str>,
+    ) -> anyhow::Result<crate::terraform::graph::TerraformGraph> {
+        self.terraform_service.graph(graph_type).await
+    }
+
+    /// Get terraform outputs
+    pub async fn output(
+        &self,
+        name: Option<&str>,
+    ) -> anyhow::Result<crate::terraform::output::OutputResult> {
+        self.terraform_service.output(name).await
+    }
+
+    /// Execute taint/untaint operation
+    pub async fn taint(
+        &self,
+        action: &str,
+        address: &str,
+    ) -> anyhow::Result<crate::terraform::taint::TaintResult> {
+        self.terraform_service.taint(action, address).await
+    }
+
+    /// Refresh state
+    pub async fn refresh_state(
+        &self,
+        target: Option<&str>,
+    ) -> anyhow::Result<crate::terraform::refresh::RefreshResult> {
+        self.terraform_service.refresh_state(target).await
+    }
+
+    /// Get provider information
+    pub async fn get_providers(
+        &self,
+        include_lock: bool,
+    ) -> anyhow::Result<crate::terraform::providers::ProvidersResult> {
+        self.terraform_service.get_providers(include_lock).await
     }
 }

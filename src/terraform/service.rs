@@ -529,8 +529,13 @@ impl TerraformService {
             }
         }
 
-        eprintln!("[INFO] Terraform analysis complete: found {} resources, {} variables, {} outputs, {} providers",
-                 analysis.resources.len(), analysis.variables.len(), analysis.outputs.len(), analysis.providers.len());
+        eprintln!(
+            "[INFO] Terraform analysis complete: found {} resources, {} variables, {} outputs, {} providers",
+            analysis.resources.len(),
+            analysis.variables.len(),
+            analysis.outputs.len(),
+            analysis.providers.len()
+        );
 
         Ok(analysis)
     }
@@ -751,5 +756,200 @@ impl TerraformService {
         );
 
         Ok(checks)
+    }
+
+    // ==================== New v0.1.9 Methods ====================
+
+    /// Analyze terraform plan output with risk scoring
+    pub async fn analyze_plan(
+        &self,
+        include_risk: bool,
+    ) -> anyhow::Result<super::plan_analyzer::PlanAnalysis> {
+        eprintln!(
+            "[DEBUG] Analyzing terraform plan in {}",
+            self.project_directory.display()
+        );
+
+        // Get plan JSON
+        let plan_json = self.get_plan().await?;
+        super::plan_analyzer::analyze_plan(&plan_json, include_risk)
+    }
+
+    /// Analyze terraform state with optional drift detection
+    pub async fn analyze_state(
+        &self,
+        resource_type: Option<&str>,
+        detect_drift: bool,
+    ) -> anyhow::Result<super::state_analyzer::StateAnalysis> {
+        eprintln!(
+            "[DEBUG] Analyzing terraform state in {}",
+            self.project_directory.display()
+        );
+
+        // Get state JSON
+        let output = Command::new(&self.terraform_path)
+            .arg("state")
+            .arg("pull")
+            .current_dir(&self.project_directory)
+            .output()?;
+
+        if !output.status.success() {
+            return Err(anyhow::anyhow!(
+                "Failed to get state: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        let state_json = String::from_utf8_lossy(&output.stdout);
+        super::state_analyzer::analyze_state(&state_json, resource_type, detect_drift)
+    }
+
+    /// Execute workspace operations
+    pub async fn workspace(
+        &self,
+        action: &str,
+        name: Option<&str>,
+    ) -> anyhow::Result<super::workspace::WorkspaceResult> {
+        eprintln!(
+            "[DEBUG] Executing workspace {} in {}",
+            action,
+            self.project_directory.display()
+        );
+
+        let action = action.parse()?;
+        super::workspace::execute_workspace(
+            &self.terraform_path,
+            &self.project_directory,
+            action,
+            name,
+        )
+    }
+
+    /// Import a resource (preview or execute)
+    pub async fn import_resource(
+        &self,
+        resource_type: &str,
+        resource_id: &str,
+        name: &str,
+        execute: bool,
+    ) -> anyhow::Result<serde_json::Value> {
+        eprintln!(
+            "[DEBUG] Import {} {} as {} (execute={})",
+            resource_type, resource_id, name, execute
+        );
+
+        if execute {
+            let result = super::import_helper::execute_import(
+                &self.terraform_path,
+                &self.project_directory,
+                resource_type,
+                resource_id,
+                name,
+            )?;
+            Ok(serde_json::to_value(result)?)
+        } else {
+            let preview = super::import_helper::preview_import(resource_type, resource_id, name)?;
+            Ok(serde_json::to_value(preview)?)
+        }
+    }
+
+    /// Format terraform files
+    pub async fn fmt(
+        &self,
+        check: bool,
+        diff: bool,
+        file: Option<&str>,
+    ) -> anyhow::Result<super::fmt::FormatResult> {
+        eprintln!(
+            "[DEBUG] Formatting terraform files in {}",
+            self.project_directory.display()
+        );
+
+        if check {
+            super::fmt::check_format(&self.terraform_path, &self.project_directory, file)
+        } else if diff {
+            super::fmt::format_with_diff(&self.terraform_path, &self.project_directory, file)
+        } else {
+            super::fmt::format_files(&self.terraform_path, &self.project_directory, file)
+        }
+    }
+
+    /// Generate dependency graph
+    pub async fn graph(
+        &self,
+        graph_type: Option<&str>,
+    ) -> anyhow::Result<super::graph::TerraformGraph> {
+        eprintln!(
+            "[DEBUG] Generating graph in {}",
+            self.project_directory.display()
+        );
+
+        let graph_type = graph_type.map(|s| s.parse()).transpose()?;
+        super::graph::generate_graph(&self.terraform_path, &self.project_directory, graph_type)
+    }
+
+    /// Get terraform outputs
+    pub async fn output(&self, name: Option<&str>) -> anyhow::Result<super::output::OutputResult> {
+        eprintln!(
+            "[DEBUG] Getting outputs in {}",
+            self.project_directory.display()
+        );
+
+        super::output::get_outputs(&self.terraform_path, &self.project_directory, name)
+    }
+
+    /// Execute taint/untaint operation
+    pub async fn taint(
+        &self,
+        action: &str,
+        address: &str,
+    ) -> anyhow::Result<super::taint::TaintResult> {
+        eprintln!(
+            "[DEBUG] Executing {} on {} in {}",
+            action,
+            address,
+            self.project_directory.display()
+        );
+
+        let action = action.parse()?;
+        super::taint::execute_taint(
+            &self.terraform_path,
+            &self.project_directory,
+            action,
+            address,
+        )
+    }
+
+    /// Refresh state
+    pub async fn refresh_state(
+        &self,
+        target: Option<&str>,
+    ) -> anyhow::Result<super::refresh::RefreshResult> {
+        eprintln!(
+            "[DEBUG] Refreshing state in {}",
+            self.project_directory.display()
+        );
+
+        // Security check - refresh can modify state
+        if !self.security_manager.is_command_allowed("refresh") {
+            return Err(anyhow::anyhow!(
+                "Refresh operation blocked by security policy. Set TFMCP_ALLOW_DANGEROUS_OPS=true to enable."
+            ));
+        }
+
+        super::refresh::execute_refresh(&self.terraform_path, &self.project_directory, target)
+    }
+
+    /// Get provider information
+    pub async fn get_providers(
+        &self,
+        include_lock: bool,
+    ) -> anyhow::Result<super::providers::ProvidersResult> {
+        eprintln!(
+            "[DEBUG] Getting providers in {}",
+            self.project_directory.display()
+        );
+
+        super::providers::get_providers(&self.terraform_path, &self.project_directory, include_lock)
     }
 }

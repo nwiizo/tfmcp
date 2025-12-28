@@ -81,15 +81,21 @@ async fn test_fallback_client_creation() {
 
     // Test that fallback namespaces are properly configured
     assert_eq!(fallback_client.fallback_namespaces.len(), 3);
-    assert!(fallback_client
-        .fallback_namespaces
-        .contains(&"hashicorp".to_string()));
-    assert!(fallback_client
-        .fallback_namespaces
-        .contains(&"terraform-providers".to_string()));
-    assert!(fallback_client
-        .fallback_namespaces
-        .contains(&"community".to_string()));
+    assert!(
+        fallback_client
+            .fallback_namespaces
+            .contains(&"hashicorp".to_string())
+    );
+    assert!(
+        fallback_client
+            .fallback_namespaces
+            .contains(&"terraform-providers".to_string())
+    );
+    assert!(
+        fallback_client
+            .fallback_namespaces
+            .contains(&"community".to_string())
+    );
 }
 
 #[tokio::test]

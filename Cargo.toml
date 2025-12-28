@@ -1,7 +1,7 @@
 [package]
 name = "tfmcp"
-version = "0.1.8"
-edition = "2021"
+version = "0.1.9"
+edition = "2024"
 authors = ["nwiizo <syu.m.5151@gmail.com>"]
 description = "Terraform Model Context Protocol Tool - A CLI tool to manage Terraform through MCP"
 readme = "README.md"
@@ -10,7 +10,7 @@ license = "MIT"
 keywords = ["terraform", "mcp", "llm", "ai", "claude"]
 categories = ["command-line-utilities", "development-tools"]
 build = "build.rs"
-rust-version = "1.78.0"
+rust-version = "1.85.0"
 
 [lib]
 name = "tfmcp"

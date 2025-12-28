@@ -35,9 +35,19 @@ pub mod shared {
 
 pub mod terraform {
     pub mod analyzer;
+    pub mod fmt;
+    pub mod graph;
+    pub mod import_helper;
     pub mod model;
+    pub mod output;
     pub mod parser;
+    pub mod plan_analyzer;
+    pub mod providers;
+    pub mod refresh;
     pub mod service;
+    pub mod state_analyzer;
+    pub mod taint;
+    pub mod workspace;
 }
 
 pub mod core {

@@ -265,10 +265,12 @@ mod tests {
         let tool = builder.build();
 
         assert_eq!(tool["name"], "test_tool");
-        assert!(tool["description"]
-            .as_str()
-            .unwrap()
-            .contains("Test MCP tool"));
+        assert!(
+            tool["description"]
+                .as_str()
+                .unwrap()
+                .contains("Test MCP tool")
+        );
         assert!(tool["inputSchema"].is_object());
     }
 

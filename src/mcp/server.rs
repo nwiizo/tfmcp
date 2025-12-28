@@ -6,6 +6,7 @@ use crate::registry::fallback::RegistryClientWithFallback;
 use crate::registry::provider::ProviderResolver;
 use crate::shared::logging;
 use rmcp::{
+    ErrorData as McpError, ServerHandler,
     handler::server::{tool::ToolRouter, wrapper::Parameters},
     model::{
         Annotated, CallToolRequestParam, CallToolResult, Content, Implementation, InitializeResult,
@@ -14,7 +15,7 @@ use rmcp::{
         ResourceContents, ResourcesCapability, ServerCapabilities, ToolsCapability,
     },
     service::{RequestContext, RoleServer, ServiceExt},
-    tool, tool_router, ErrorData as McpError, ServerHandler,
+    tool, tool_router,
 };
 use std::future::Future;
 use std::sync::Arc;
@@ -710,6 +711,245 @@ impl TfMcpServer {
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Failed to get latest provider version: {}",
+                e
+            ))])),
+        }
+    }
+
+    // ============ v0.1.9 New Tools ============
+
+    #[tool(
+        description = "Analyze terraform plan with risk scoring and recommendations",
+        annotations(title = "Analyze Plan", read_only_hint = true)
+    )]
+    async fn analyze_plan(
+        &self,
+        params: Parameters<AnalyzePlanInput>,
+    ) -> Result<CallToolResult, McpError> {
+        logging::info("Executing analyze_plan tool");
+        let tfmcp = self.tfmcp.read().await;
+        match tfmcp.analyze_plan(params.0.include_risk).await {
+            Ok(analysis) => {
+                let json = serde_json::to_string_pretty(&analysis).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Plan analysis failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Analyze terraform state with optional drift detection",
+        annotations(title = "Analyze State", read_only_hint = true)
+    )]
+    async fn analyze_state(
+        &self,
+        params: Parameters<AnalyzeStateInput>,
+    ) -> Result<CallToolResult, McpError> {
+        logging::info("Executing analyze_state tool");
+        let tfmcp = self.tfmcp.read().await;
+        match tfmcp
+            .analyze_state(params.0.resource_type.as_deref(), params.0.detect_drift)
+            .await
+        {
+            Ok(analysis) => {
+                let json = serde_json::to_string_pretty(&analysis).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "State analysis failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Manage terraform workspaces (list, show, new, select, delete)",
+        annotations(title = "Terraform Workspace", idempotent_hint = true)
+    )]
+    async fn terraform_workspace(
+        &self,
+        params: Parameters<WorkspaceInput>,
+    ) -> Result<CallToolResult, McpError> {
+        logging::info("Executing terraform_workspace tool");
+        let tfmcp = self.tfmcp.read().await;
+        match tfmcp
+            .workspace(&params.0.action, params.0.name.as_deref())
+            .await
+        {
+            Ok(result) => {
+                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Workspace operation failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Import existing resources into Terraform state",
+        annotations(title = "Terraform Import", destructive_hint = true)
+    )]
+    async fn terraform_import(
+        &self,
+        params: Parameters<ImportInput>,
+    ) -> Result<CallToolResult, McpError> {
+        logging::info("Executing terraform_import tool");
+        let tfmcp = self.tfmcp.read().await;
+        match tfmcp
+            .import_resource(
+                &params.0.resource_type,
+                &params.0.resource_id,
+                &params.0.name,
+                params.0.execute,
+            )
+            .await
+        {
+            Ok(result) => {
+                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Import failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Format Terraform configuration files",
+        annotations(title = "Terraform Format", idempotent_hint = true)
+    )]
+    async fn terraform_fmt(
+        &self,
+        params: Parameters<FmtInput>,
+    ) -> Result<CallToolResult, McpError> {
+        logging::info("Executing terraform_fmt tool");
+        let tfmcp = self.tfmcp.read().await;
+        match tfmcp
+            .fmt(params.0.check, params.0.diff, params.0.file.as_deref())
+            .await
+        {
+            Ok(result) => {
+                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Format failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Generate Terraform dependency graph in DOT format",
+        annotations(title = "Terraform Graph", read_only_hint = true)
+    )]
+    async fn terraform_graph(
+        &self,
+        params: Parameters<GraphInput>,
+    ) -> Result<CallToolResult, McpError> {
+        logging::info("Executing terraform_graph tool");
+        let tfmcp = self.tfmcp.read().await;
+        match tfmcp.graph(params.0.graph_type.as_deref()).await {
+            Ok(graph) => {
+                let json = serde_json::to_string_pretty(&graph).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Graph generation failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Get Terraform output values",
+        annotations(title = "Terraform Output", read_only_hint = true)
+    )]
+    async fn terraform_output(
+        &self,
+        params: Parameters<OutputInput>,
+    ) -> Result<CallToolResult, McpError> {
+        logging::info("Executing terraform_output tool");
+        let tfmcp = self.tfmcp.read().await;
+        match tfmcp.output(params.0.name.as_deref()).await {
+            Ok(result) => {
+                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Output retrieval failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Taint or untaint a resource (deprecated: use -replace instead)",
+        annotations(title = "Terraform Taint", destructive_hint = true)
+    )]
+    async fn terraform_taint(
+        &self,
+        params: Parameters<TaintInput>,
+    ) -> Result<CallToolResult, McpError> {
+        logging::info("Executing terraform_taint tool");
+        let tfmcp = self.tfmcp.read().await;
+        match tfmcp.taint(&params.0.action, &params.0.address).await {
+            Ok(result) => {
+                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Taint operation failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Refresh Terraform state to match real infrastructure",
+        annotations(title = "Terraform Refresh", destructive_hint = true)
+    )]
+    async fn terraform_refresh(
+        &self,
+        params: Parameters<RefreshInput>,
+    ) -> Result<CallToolResult, McpError> {
+        logging::info("Executing terraform_refresh tool");
+        let tfmcp = self.tfmcp.read().await;
+        match tfmcp.refresh_state(params.0.target.as_deref()).await {
+            Ok(result) => {
+                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Refresh failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Get information about Terraform providers and lock file",
+        annotations(title = "Terraform Providers", read_only_hint = true)
+    )]
+    async fn terraform_providers(
+        &self,
+        params: Parameters<ProvidersInput>,
+    ) -> Result<CallToolResult, McpError> {
+        logging::info("Executing terraform_providers tool");
+        let tfmcp = self.tfmcp.read().await;
+        match tfmcp.get_providers(params.0.include_lock).await {
+            Ok(result) => {
+                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Provider info failed: {}",
                 e
             ))])),
         }

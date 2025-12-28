@@ -20,18 +20,24 @@ See tfmcp in action with Claude Desktop:
 
 ## 🎉 Latest Release
 
-The latest version of tfmcp (v0.1.8) is now available on Crates.io! You can easily install it using Cargo:
+The latest version of tfmcp (v0.1.9) is now available on Crates.io! You can easily install it using Cargo:
 
 ```bash
 cargo install tfmcp
 ```
 
-### 🆕 What's New in v0.1.8
-- **🔧 RMCP SDK Migration**: Migrated to official [RMCP SDK](https://github.com/modelcontextprotocol/rust-sdk) for better MCP compliance
-- **🏷️ Tool Annotations**: Added MCP tool hints (readOnlyHint, destructiveHint, openWorldHint, idempotentHint) for safer LLM tool usage
-- **📋 Future Architect Guidelines**: Integrated [Terraform coding standards](https://future-architect.github.io/coding-standards/documents/forTerraform/) compliance checks
-- **🔐 Secret Detection**: Automatic scanning for hardcoded AWS keys, API tokens, and private keys
-- **✅ Variable Quality Checks**: Type/description validation for variables and outputs
+### 🆕 What's New in v0.1.9
+- **📊 Plan Analysis**: Structured plan analysis with risk scoring and recommendations
+- **🔍 State Analysis**: Deep state inspection with drift detection
+- **📁 Workspace Management**: Full terraform workspace support (list, show, new, select, delete)
+- **📥 Import Helper**: Guided resource import with config generation
+- **✨ Code Formatting**: terraform fmt integration
+- **🔗 Dependency Graph**: terraform graph visualization with DOT output
+- **📤 Output Management**: terraform output access
+- **🏷️ Taint/Untaint**: Resource taint management (with deprecation notices for 1.5+)
+- **🔄 State Refresh**: Explicit state refresh operations
+- **📦 Provider Info**: Detailed provider information with lock file parsing
+- **🦀 Rust Edition 2024**: Migrated to Rust Edition 2024 (requires Rust 1.85.0+)
 
 ## Features
 
@@ -202,41 +208,58 @@ If you're using Docker with Claude Desktop, you can set up the configuration lik
 
 ## MCP Tools
 
-tfmcp provides the following MCP tools for AI assistants:
+tfmcp provides 31 MCP tools for AI assistants:
 
 ### Core Terraform Operations
 | Tool | Description |
 |------|-------------|
-| `terraform_init` | Initialize Terraform working directory |
-| `terraform_plan` | Generate and show execution plan |
-| `terraform_apply` | Apply Terraform configuration |
-| `terraform_destroy` | Destroy Terraform-managed infrastructure |
-| `terraform_validate` | Validate configuration syntax |
-| `terraform_state` | Show current state |
-| `list_resources` | List all managed resources |
+| `init_terraform` | Initialize Terraform working directory |
+| `get_terraform_plan` | Generate and show execution plan |
+| `analyze_plan` | **NEW** Analyze plan with risk scoring and recommendations |
+| `apply_terraform` | Apply Terraform configuration |
+| `destroy_terraform` | Destroy Terraform-managed infrastructure |
+| `validate_terraform` | Validate configuration syntax |
+| `validate_terraform_detailed` | Detailed validation with guidelines |
+| `get_terraform_state` | Show current state |
+| `analyze_state` | **NEW** Analyze state with drift detection |
+| `list_terraform_resources` | List all managed resources |
 | `set_terraform_directory` | Change active project directory |
 
-### Module Health Analysis (v0.1.6)
+### Workspace & State (v0.1.9)
 | Tool | Description |
 |------|-------------|
-| `analyze_module_health` | Analyze module health with cohesion/coupling metrics, health score (0-100), issues detection, and recommendations |
-| `get_resource_dependency_graph` | Build resource dependency graph showing nodes, edges (explicit/implicit), and module boundaries |
-| `suggest_module_refactoring` | Generate refactoring suggestions (SplitModule, WrapPublicModule, AddDescriptions, FlattenHierarchy) with migration steps |
+| `terraform_workspace` | **NEW** Manage workspaces (list, show, new, select, delete) |
+| `terraform_import` | **NEW** Import existing resources |
+| `terraform_taint` | **NEW** Taint/untaint resources |
+| `terraform_refresh` | **NEW** Refresh state |
 
-### Module Registry
+### Code & Output (v0.1.9)
 | Tool | Description |
 |------|-------------|
-| `search_terraform_modules` | Search Terraform modules in the registry |
-| `get_module_details` | Get detailed information about a module |
-| `get_latest_module_version` | Get the latest version of a module |
-| `get_latest_provider_version` | Get the latest version of a provider |
+| `terraform_fmt` | **NEW** Format code |
+| `terraform_graph` | **NEW** Generate dependency graph |
+| `terraform_output` | **NEW** Get output values |
+| `terraform_providers` | **NEW** Get provider info with lock file |
 
-### Provider Information
+### Analysis & Security
 | Tool | Description |
 |------|-------------|
-| `search_providers` | Search Terraform providers |
-| `get_provider_details` | Get detailed provider information |
-| `list_provider_versions` | List available provider versions |
+| `analyze_terraform` | Analyze configuration |
+| `analyze_module_health` | Module health with cohesion/coupling metrics |
+| `get_resource_dependency_graph` | Resource dependencies visualization |
+| `suggest_module_refactoring` | Refactoring suggestions |
+| `get_security_status` | Security scan with secret detection |
+
+### Registry
+| Tool | Description |
+|------|-------------|
+| `search_terraform_providers` | Search providers |
+| `get_provider_info` | Provider details |
+| `get_provider_docs` | Provider documentation |
+| `search_terraform_modules` | Search modules |
+| `get_module_details` | Module details |
+| `get_latest_module_version` | Latest module version |
+| `get_latest_provider_version` | Latest provider version |
 
 ## Logs and Troubleshooting
 
