@@ -20,18 +20,18 @@ See tfmcp in action with Claude Desktop:
 
 ## 🎉 Latest Release
 
-The latest version of tfmcp (v0.1.6) is now available on Crates.io! You can easily install it using Cargo:
+The latest version of tfmcp (v0.1.8) is now available on Crates.io! You can easily install it using Cargo:
 
 ```bash
 cargo install tfmcp
 ```
 
-### 🆕 What's New in v0.1.6
-- **🔬 Module Health Analysis**: Whitebox IaC approach with cohesion/coupling metrics
-- **📊 Resource Dependency Graph**: Visualize resource relationships and dependencies
-- **🛠️ Refactoring Suggestions**: Actionable recommendations with migration steps
-- **📦 Module Registry Support**: Search and explore Terraform modules
-- **📚 MCP Resources**: Built-in style guides and best practices documentation
+### 🆕 What's New in v0.1.8
+- **🔧 RMCP SDK Migration**: Migrated to official [RMCP SDK](https://github.com/modelcontextprotocol/rust-sdk) for better MCP compliance
+- **🏷️ Tool Annotations**: Added MCP tool hints (readOnlyHint, destructiveHint, openWorldHint, idempotentHint) for safer LLM tool usage
+- **📋 Future Architect Guidelines**: Integrated [Terraform coding standards](https://future-architect.github.io/coding-standards/documents/forTerraform/) compliance checks
+- **🔐 Secret Detection**: Automatic scanning for hardcoded AWS keys, API tokens, and private keys
+- **✅ Variable Quality Checks**: Type/description validation for variables and outputs
 
 ## Features
 
@@ -55,6 +55,9 @@ cargo install tfmcp
 
 - 📊 **Advanced Analysis**
   Detailed Terraform configuration analysis with best practice recommendations and security checks.
+
+- 📋 **Guideline Compliance** (v0.1.8)
+  Future Architect Terraform guidelines integration with compliance scoring, secret detection, and variable quality checks.
 
 - ⚡️ **Blazing Fast**
   High-speed processing powered by the Rust ecosystem with optimized parsing and caching.
@@ -362,7 +365,13 @@ Here are some planned improvements and future features for tfmcp:
   Search and explore Terraform modules from the registry.
 
 - [x] **Comprehensive Testing Framework**
-  74+ tests including integration tests with real Terraform configurations.
+  85+ tests including integration tests with real Terraform configurations.
+
+- [x] **RMCP SDK Migration (v0.1.8)**
+  Migrated to official RMCP SDK with proper tool annotations for better MCP compliance.
+
+- [x] **Future Architect Guidelines (v0.1.8)**
+  Terraform coding standards compliance checks with secret detection and variable quality validation.
 
 ### In Progress
 - [ ] **Multi-Environment Support**
