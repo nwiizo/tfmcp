@@ -1,0 +1,63 @@
+{
+  "name": "nwiizo/tfmcp",
+  "description": "🦀 🏠 - A Terraform MCP server allowing AI assistants to manage and operate Terraform environments, enabling reading configurations, analyzing plans, applying configurations, and managing Terraform state.",
+  "accepts": [
+    {
+      "network": "eip155:8453",
+      "asset": "USDC",
+      "address": "YOUR_WALLET_ADDRESS"
+    }
+  ],
+  "resources": [
+    {
+      "path": "/init_terraform",
+      "price": "0.01",
+      "description": "Pay-per-call access to init_terraform"
+    },
+    {
+      "path": "/get_terraform_plan",
+      "price": "0.01",
+      "description": "Pay-per-call access to get_terraform_plan"
+    },
+    {
+      "path": "/analyze_plan",
+      "price": "0.01",
+      "description": "Pay-per-call access to analyze_plan"
+    },
+    {
+      "path": "/apply_terraform",
+      "price": "0.01",
+      "description": "Pay-per-call access to apply_terraform"
+    },
+    {
+      "path": "/destroy_terraform",
+      "price": "0.01",
+      "description": "Pay-per-call access to destroy_terraform"
+    },
+    {
+      "path": "/validate_terraform",
+      "price": "0.01",
+      "description": "Pay-per-call access to validate_terraform"
+    },
+    {
+      "path": "/analyze_state",
+      "price": "0.01",
+      "description": "Pay-per-call access to analyze_state"
+    },
+    {
+      "path": "/terraform_workspace",
+      "price": "0.01",
+      "description": "Pay-per-call access to terraform_workspace"
+    },
+    {
+      "path": "/terraform_import",
+      "price": "0.01",
+      "description": "Pay-per-call access to terraform_import"
+    },
+    {
+      "path": "/terraform_graph",
+      "price": "0.01",
+      "description": "Pay-per-call access to terraform_graph"
+    }
+  ]
+}
