@@ -137,13 +137,34 @@ pub struct DocIdResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderVersions {
-    #[serde(default)]
+    /// Registry returns versions as either `["1.0"]` or `[{"version":"1.0",...}]`
+    #[serde(default, deserialize_with = "deserialize_versions")]
     pub versions: Vec<String>,
     // Handle alternative response formats
     #[serde(default)]
     pub data: Option<Vec<VersionInfo>>,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+/// Deserializes versions from either a string array or an array of objects
+/// with a `version` field. The Terraform Registry API returns the latter.
+fn deserialize_versions<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: Vec<Value> = Vec::deserialize(deserializer).unwrap_or_default();
+    Ok(raw
+        .into_iter()
+        .filter_map(|v| match v {
+            Value::String(s) => Some(s),
+            Value::Object(ref map) => map
+                .get("version")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            _ => None,
+        })
+        .collect())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -772,7 +793,7 @@ impl RegistryClient {
 
                         let latest_version = versions
                             .versions
-                            .first()
+                            .last()
                             .cloned()
                             .ok_or(RegistryError::InvalidResponse)?;
 

@@ -422,19 +422,21 @@ fn extract_references(value: &serde_json::Value, current_addr: &str) -> Vec<Stri
 
     fn walk(v: &serde_json::Value, refs: &mut Vec<String>, current: &str) {
         match v {
-            serde_json::Value::String(s) => {
-                // Look for resource address patterns like "aws_instance.example"
-                if s.contains('.') && !s.starts_with("http") && !s.contains('/') && s != current {
-                    // Check if it looks like a resource address
-                    let parts: Vec<&str> = s.split('.').collect();
-                    if parts.len() >= 2
-                        && !parts[0].is_empty()
-                        && parts[0]
-                            .chars()
-                            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
-                    {
-                        refs.push(s.clone());
-                    }
+            serde_json::Value::String(s)
+                if s.contains('.')
+                    && !s.starts_with("http")
+                    && !s.contains('/')
+                    && s != current =>
+            {
+                // Check if it looks like a resource address
+                let parts: Vec<&str> = s.split('.').collect();
+                if parts.len() >= 2
+                    && !parts[0].is_empty()
+                    && parts[0]
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+                {
+                    refs.push(s.clone());
                 }
             }
             serde_json::Value::Array(arr) => {

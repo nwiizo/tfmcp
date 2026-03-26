@@ -13,83 +13,89 @@ use crate::terraform::model::{
     RefactoringSuggestion, RefactoringType, ResourceDependencyGraph, ResourceEdge, ResourceNode,
     ResourceTypeGroup, SecretDetection, TerraformAnalysis,
 };
-use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
 // Regex patterns for extended parsing
-static DATA_SOURCE_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"data\s+"([^"]+)"\s+"([^"]+)""#).expect("Invalid data source regex"));
+static DATA_SOURCE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"data\s+"([^"]+)"\s+"([^"]+)""#).expect("Invalid data source regex")
+});
 
-static MODULE_CALL_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"module\s+"([^"]+)"\s*\{"#).expect("Invalid module call regex"));
+static MODULE_CALL_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"module\s+"([^"]+)"\s*\{"#).expect("Invalid module call regex"));
 
-static LOCALS_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"locals\s*\{"#).expect("Invalid locals regex"));
+static LOCALS_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"locals\s*\{"#).expect("Invalid locals regex"));
 
-static REFERENCE_REGEX: Lazy<Regex> = Lazy::new(|| {
+static REFERENCE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(aws_[a-z_]+|azurerm_[a-z_]+|google_[a-z_]+|kubernetes_[a-z_]+)\.([a-z_0-9]+)"#)
         .expect("Invalid reference regex")
 });
 
-static DEPENDS_ON_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"depends_on\s*=\s*\[([^\]]+)\]"#).expect("Invalid depends_on regex"));
+static DEPENDS_ON_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"depends_on\s*=\s*\[([^\]]+)\]"#).expect("Invalid depends_on regex")
+});
 
-static COUNT_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"count\s*=\s*"#).expect("Invalid count regex"));
+static COUNT_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"count\s*=\s*"#).expect("Invalid count regex"));
 
-static FOR_EACH_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"for_each\s*=\s*"#).expect("Invalid for_each regex"));
+static FOR_EACH_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"for_each\s*=\s*"#).expect("Invalid for_each regex"));
 
-static MODULE_SOURCE_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"source\s*=\s*"([^"]+)""#).expect("Invalid module source regex"));
+static MODULE_SOURCE_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"source\s*=\s*"([^"]+)""#).expect("Invalid module source regex"));
 
 // Regex patterns for Future Architect guideline checks
-static ANY_TYPE_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"type\s*=\s*any\b"#).expect("Invalid any type regex"));
+static ANY_TYPE_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"type\s*=\s*any\b"#).expect("Invalid any type regex"));
 
-static COUNT_VALUE_REGEX: Lazy<Regex> = Lazy::new(|| {
+static COUNT_VALUE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"resource\s+"([^"]+)"\s+"([^"]+)"\s*\{[^}]*count\s*=\s*([^\n]+)"#)
         .expect("Invalid count value regex")
 });
 
-static DEFAULT_TAGS_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"default_tags\s*\{"#).expect("Invalid default_tags regex"));
+static DEFAULT_TAGS_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"default_tags\s*\{"#).expect("Invalid default_tags regex"));
 
-static LIFECYCLE_PREVENT_DESTROY_REGEX: Lazy<Regex> = Lazy::new(|| {
+static LIFECYCLE_PREVENT_DESTROY_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"lifecycle\s*\{[^}]*prevent_destroy\s*=\s*true"#).expect("Invalid lifecycle regex")
 });
 
 // Secret detection patterns (based on common secret patterns)
-static SECRET_PATTERNS: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
+static SECRET_PATTERNS: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
     vec![
         (
             "AWS Access Key",
-            Regex::new(r#"(?i)(aws_access_key_id|access_key)\s*=\s*"[A-Z0-9]{20}""#).unwrap(),
+            Regex::new(r#"(?i)(aws_access_key_id|access_key)\s*=\s*"[A-Z0-9]{20}""#)
+                .expect("Invalid AWS access key regex"),
         ),
         (
             "AWS Secret Key",
             Regex::new(r#"(?i)(aws_secret_access_key|secret_key)\s*=\s*"[A-Za-z0-9/+=]{40}""#)
-                .unwrap(),
+                .expect("Invalid AWS secret key regex"),
         ),
         (
             "Generic API Key",
-            Regex::new(r#"(?i)(api_key|apikey)\s*=\s*"[A-Za-z0-9_-]{20,}""#).unwrap(),
+            Regex::new(r#"(?i)(api_key|apikey)\s*=\s*"[A-Za-z0-9_-]{20,}""#)
+                .expect("Invalid API key regex"),
         ),
         (
             "Generic Secret",
-            Regex::new(r#"(?i)(password|secret|token)\s*=\s*"[^"]{8,}""#).unwrap(),
+            Regex::new(r#"(?i)(password|secret|token)\s*=\s*"[^"]{8,}""#)
+                .expect("Invalid secret regex"),
         ),
         (
             "Private Key",
-            Regex::new(r#"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"#).unwrap(),
+            Regex::new(r#"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"#)
+                .expect("Invalid private key regex"),
         ),
     ]
 });
 
 // Critical resources that should have prevent_destroy
-static CRITICAL_RESOURCE_TYPES: Lazy<HashSet<&'static str>> = Lazy::new(|| {
-    vec![
+static CRITICAL_RESOURCE_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    [
         "aws_db_instance",
         "aws_rds_cluster",
         "aws_s3_bucket",

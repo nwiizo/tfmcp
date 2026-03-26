@@ -1,24 +1,24 @@
 use crate::terraform::model::{
     TerraformOutput, TerraformProvider, TerraformResource, TerraformVariable,
 };
-use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 // Lazy-initialized regex patterns for better performance
-static RESOURCE_REGEX: Lazy<Regex> = Lazy::new(|| {
+static RESOURCE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"resource\s+"([^"]+)"\s+"([^"]+)""#).expect("Invalid resource regex")
 });
 
-static VARIABLE_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"variable\s+"([^"]+)""#).expect("Invalid variable regex"));
+static VARIABLE_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"variable\s+"([^"]+)""#).expect("Invalid variable regex"));
 
-static OUTPUT_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"output\s+"([^"]+)""#).expect("Invalid output regex"));
+static OUTPUT_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"output\s+"([^"]+)""#).expect("Invalid output regex"));
 
-static PROVIDER_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"provider\s+"([^"]+)""#).expect("Invalid provider regex"));
+static PROVIDER_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"provider\s+"([^"]+)""#).expect("Invalid provider regex"));
 
 /// Parser for Terraform HCL files
 pub struct TerraformParser {

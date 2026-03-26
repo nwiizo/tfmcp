@@ -9,10 +9,10 @@ use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{tool::ToolRouter, wrapper::Parameters},
     model::{
-        Annotated, CallToolRequestParam, CallToolResult, Content, Implementation, InitializeResult,
-        ListResourcesResult, ListToolsResult, PaginatedRequestParam, PromptsCapability,
-        ProtocolVersion, RawResource, ReadResourceRequestParam, ReadResourceResult,
-        ResourceContents, ResourcesCapability, ServerCapabilities, ToolsCapability,
+        Annotated, CallToolRequestParams, CallToolResult, Content, Implementation,
+        ListResourcesResult, ListToolsResult, PaginatedRequestParams, RawResource,
+        ReadResourceRequestParams, ReadResourceResult, ResourceContents, ServerCapabilities,
+        ServerInfo,
     },
     service::{RequestContext, RoleServer, ServiceExt},
     tool, tool_router,
@@ -25,6 +25,12 @@ use tokio::sync::RwLock;
 use super::resources::{
     TERRAFORM_BEST_PRACTICES, TERRAFORM_MODULE_DEVELOPMENT, TERRAFORM_STYLE_GUIDE,
 };
+
+/// Serialize a value to pretty JSON, returning an McpError on failure.
+fn to_json(value: &impl serde::Serialize) -> Result<String, McpError> {
+    serde_json::to_string_pretty(value)
+        .map_err(|e| McpError::internal_error(format!("JSON serialization failed: {e}"), None))
+}
 
 /// RMCP-based MCP server for Terraform operations.
 #[derive(Clone)]
@@ -74,10 +80,7 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.list_resources().await {
             Ok(resources) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
-                    "resources": resources
-                }))
-                .unwrap_or_default();
+                let json = to_json(&serde_json::json!({ "resources": resources }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -96,10 +99,9 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.get_terraform_plan().await {
             Ok(output) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "plan": output
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -121,10 +123,9 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.apply_terraform(params.0.auto_approve).await {
             Ok(output) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "output": output
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -146,10 +147,9 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.destroy_terraform(params.0.auto_approve).await {
             Ok(output) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "output": output
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -172,10 +172,9 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.init_terraform().await {
             Ok(output) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "output": output
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -195,11 +194,10 @@ impl TfMcpServer {
         match tfmcp.validate_configuration().await {
             Ok(result) => {
                 let valid = !result.contains("Error:");
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "valid": valid,
                     "message": result
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -218,7 +216,7 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.validate_configuration_detailed().await {
             Ok(result) => {
-                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                let json = to_json(&result)?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -237,10 +235,9 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.get_state().await {
             Ok(state) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "state": state
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -275,7 +272,7 @@ impl TfMcpServer {
                     Err(_) => serde_json::json!(null),
                 };
 
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "project_directory": analysis.project_directory,
                     "file_count": analysis.file_count,
                     "resources": analysis.resources,
@@ -283,8 +280,7 @@ impl TfMcpServer {
                     "outputs": analysis.outputs,
                     "providers": analysis.providers,
                     "guideline_summary": guideline_summary
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -308,12 +304,11 @@ impl TfMcpServer {
         match tfmcp.change_project_directory(params.0.directory.clone()) {
             Ok(()) => {
                 let dir = tfmcp.get_project_directory().to_string_lossy().to_string();
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "success": true,
                     "directory": dir,
                     "message": format!("Changed to: {}", dir)
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -364,7 +359,7 @@ impl TfMcpServer {
             }
         };
 
-        let json = serde_json::to_string_pretty(&serde_json::json!({
+        let json = to_json(&serde_json::json!({
             "policy": {
                 "allow_dangerous_operations": allow_dangerous,
                 "allow_auto_approve": allow_auto_approve
@@ -383,8 +378,7 @@ impl TfMcpServer {
                 "secrets_count": secrets_detected.len(),
                 "compliance_score": compliance_score
             }
-        }))
-        .unwrap_or_default();
+        }))?;
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
@@ -410,7 +404,7 @@ impl TfMcpServer {
                     Err(_) => serde_json::json!(null),
                 };
 
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "module_path": health.module_path,
                     "health_score": health.health_score,
                     "metrics": health.metrics,
@@ -419,8 +413,7 @@ impl TfMcpServer {
                     "cohesion_analysis": health.cohesion_analysis,
                     "coupling_analysis": health.coupling_analysis,
                     "variable_quality": variable_quality
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -439,7 +432,7 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.get_dependency_graph().await {
             Ok(graph) => {
-                let json = serde_json::to_string_pretty(&graph).unwrap_or_default();
+                let json = to_json(&graph)?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -458,10 +451,9 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.suggest_refactoring().await {
             Ok(suggestions) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "suggestions": suggestions
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -492,10 +484,9 @@ impl TfMcpServer {
             .await
         {
             Ok(providers) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "providers": providers
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -524,10 +515,9 @@ impl TfMcpServer {
             .await
         {
             Ok(info) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "provider": info
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -564,10 +554,9 @@ impl TfMcpServer {
             .await
         {
             Ok(docs) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "documentation": docs
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -597,10 +586,9 @@ impl TfMcpServer {
             .await
         {
             Ok(modules) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "modules": modules
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -635,10 +623,9 @@ impl TfMcpServer {
             .await
         {
             Ok(details) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "module": details
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -668,11 +655,10 @@ impl TfMcpServer {
             .await
         {
             Ok(version) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "version": version,
                     "module_id": format!("{}/{}/{}", params.0.namespace, params.0.name, params.0.provider)
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -701,12 +687,11 @@ impl TfMcpServer {
             .await
         {
             Ok((version, namespace)) => {
-                let json = serde_json::to_string_pretty(&serde_json::json!({
+                let json = to_json(&serde_json::json!({
                     "version": version,
                     "namespace": namespace,
                     "provider_id": format!("{}/{}", namespace, params.0.provider_name)
-                }))
-                .unwrap_or_default();
+                }))?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -730,7 +715,7 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.analyze_plan(params.0.include_risk).await {
             Ok(analysis) => {
-                let json = serde_json::to_string_pretty(&analysis).unwrap_or_default();
+                let json = to_json(&analysis)?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -755,7 +740,7 @@ impl TfMcpServer {
             .await
         {
             Ok(analysis) => {
-                let json = serde_json::to_string_pretty(&analysis).unwrap_or_default();
+                let json = to_json(&analysis)?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -780,7 +765,7 @@ impl TfMcpServer {
             .await
         {
             Ok(result) => {
-                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                let json = to_json(&result)?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -810,7 +795,7 @@ impl TfMcpServer {
             .await
         {
             Ok(result) => {
-                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                let json = to_json(&result)?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -835,7 +820,7 @@ impl TfMcpServer {
             .await
         {
             Ok(result) => {
-                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                let json = to_json(&result)?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -857,7 +842,7 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.graph(params.0.graph_type.as_deref()).await {
             Ok(graph) => {
-                let json = serde_json::to_string_pretty(&graph).unwrap_or_default();
+                let json = to_json(&graph)?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -879,7 +864,7 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.output(params.0.name.as_deref()).await {
             Ok(result) => {
-                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                let json = to_json(&result)?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -901,7 +886,7 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.taint(&params.0.action, &params.0.address).await {
             Ok(result) => {
-                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                let json = to_json(&result)?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -923,7 +908,7 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.refresh_state(params.0.target.as_deref()).await {
             Ok(result) => {
-                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                let json = to_json(&result)?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -945,7 +930,7 @@ impl TfMcpServer {
         let tfmcp = self.tfmcp.read().await;
         match tfmcp.get_providers(params.0.include_lock).await {
             Ok(result) => {
-                let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+                let json = to_json(&result)?;
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -959,88 +944,52 @@ impl TfMcpServer {
 // The ServerHandler trait requires this specific impl Future pattern
 #[allow(clippy::manual_async_fn)]
 impl ServerHandler for TfMcpServer {
-    fn get_info(&self) -> InitializeResult {
-        InitializeResult {
-            protocol_version: ProtocolVersion::LATEST,
-            capabilities: ServerCapabilities {
-                tools: Some(ToolsCapability::default()),
-                resources: Some(ResourcesCapability::default()),
-                prompts: Some(PromptsCapability::default()),
-                ..Default::default()
-            },
-            server_info: Implementation {
-                name: "tfmcp".into(),
-                version: env!("CARGO_PKG_VERSION").into(),
-                title: None,
-                icons: None,
-                website_url: None,
-            },
-            instructions: Some(
-                "tfmcp is a Terraform Model Context Protocol server. Use the tools to manage Terraform configurations.".into(),
-            ),
-        }
+    fn get_info(&self) -> ServerInfo {
+        let capabilities = ServerCapabilities::builder()
+            .enable_tools()
+            .enable_resources()
+            .enable_prompts()
+            .build();
+        let server_info = Implementation::new("tfmcp", env!("CARGO_PKG_VERSION"));
+        ServerInfo::new(capabilities)
+            .with_server_info(server_info)
+            .with_instructions(
+                "tfmcp is a Terraform Model Context Protocol server. Use the tools to manage Terraform configurations.",
+            )
     }
 
     fn list_resources(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListResourcesResult, McpError>> + Send + '_ {
         async move {
-            Ok(ListResourcesResult {
-                resources: vec![
-                    Annotated {
-                        raw: RawResource {
-                            uri: "terraform://style-guide".into(),
-                            name: "Terraform Style Guide".into(),
-                            description: Some(
-                                "Best practices for HCL formatting and code style".into(),
-                            ),
-                            mime_type: Some("text/markdown".into()),
-                            title: None,
-                            size: None,
-                            icons: None,
-                            meta: None,
-                        },
-                        annotations: None,
-                    },
-                    Annotated {
-                        raw: RawResource {
-                            uri: "terraform://module-development".into(),
-                            name: "Module Development Guide".into(),
-                            description: Some(
-                                "Guide for developing reusable Terraform modules".into(),
-                            ),
-                            mime_type: Some("text/markdown".into()),
-                            title: None,
-                            size: None,
-                            icons: None,
-                            meta: None,
-                        },
-                        annotations: None,
-                    },
-                    Annotated {
-                        raw: RawResource {
-                            uri: "terraform://best-practices".into(),
-                            name: "Terraform Best Practices".into(),
-                            description: Some("Security and operational best practices".into()),
-                            mime_type: Some("text/markdown".into()),
-                            title: None,
-                            size: None,
-                            icons: None,
-                            meta: None,
-                        },
-                        annotations: None,
-                    },
-                ],
-                ..Default::default()
-            })
+            Ok(ListResourcesResult::with_all_items(vec![
+                Annotated::new(
+                    RawResource::new("terraform://style-guide", "Terraform Style Guide")
+                        .with_description("Best practices for HCL formatting and code style")
+                        .with_mime_type("text/markdown"),
+                    None,
+                ),
+                Annotated::new(
+                    RawResource::new("terraform://module-development", "Module Development Guide")
+                        .with_description("Guide for developing reusable Terraform modules")
+                        .with_mime_type("text/markdown"),
+                    None,
+                ),
+                Annotated::new(
+                    RawResource::new("terraform://best-practices", "Terraform Best Practices")
+                        .with_description("Security and operational best practices")
+                        .with_mime_type("text/markdown"),
+                    None,
+                ),
+            ]))
         }
     }
 
     fn read_resource(
         &self,
-        request: ReadResourceRequestParam,
+        request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ReadResourceResult, McpError>> + Send + '_ {
         async move {
@@ -1056,15 +1005,16 @@ impl ServerHandler for TfMcpServer {
                 }
             };
 
-            Ok(ReadResourceResult {
-                contents: vec![ResourceContents::text(content, request.uri)],
-            })
+            Ok(ReadResourceResult::new(vec![ResourceContents::text(
+                content,
+                request.uri,
+            )]))
         }
     }
 
     fn list_tools(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
         async move {
@@ -1078,7 +1028,7 @@ impl ServerHandler for TfMcpServer {
 
     fn call_tool(
         &self,
-        request: CallToolRequestParam,
+        request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<CallToolResult, McpError>> + Send + '_ {
         async move {

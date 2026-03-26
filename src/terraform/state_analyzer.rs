@@ -215,10 +215,10 @@ pub fn analyze_state(
     let health_checks = run_health_checks(&resources, &provider_map);
 
     let mut providers: Vec<ProviderStats> = provider_map.into_values().collect();
-    providers.sort_by(|a, b| b.resource_count.cmp(&a.resource_count));
+    providers.sort_by_key(|p| std::cmp::Reverse(p.resource_count));
 
     let mut types: Vec<TypeStats> = type_map.into_values().collect();
-    types.sort_by(|a, b| b.count.cmp(&a.count));
+    types.sort_by_key(|t| std::cmp::Reverse(t.count));
 
     Ok(StateAnalysis {
         total_resources: resources.len() as i32,

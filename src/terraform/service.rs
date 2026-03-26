@@ -195,10 +195,11 @@ impl TerraformService {
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).to_string())
         } else {
-            Err(anyhow::anyhow!(
-                "Failed to get Terraform state: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ))
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("No state file") || stderr.contains("no state") {
+                return Ok("(no state)".to_string());
+            }
+            Err(anyhow::anyhow!("Failed to get Terraform state: {}", stderr))
         }
     }
 
@@ -252,14 +253,17 @@ impl TerraformService {
             .output()?;
 
         if !output.status.success() {
-            return Err(anyhow::anyhow!(
-                "Failed to list resources: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // No state file is not an error — just means no resources yet
+            if stderr.contains("No state file") || stderr.contains("no state") {
+                return Ok(Vec::new());
+            }
+            return Err(anyhow::anyhow!("Failed to list resources: {}", stderr));
         }
 
         let resources = String::from_utf8_lossy(&output.stdout)
             .lines()
+            .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect();
 
@@ -794,13 +798,18 @@ impl TerraformService {
             .output()?;
 
         if !output.status.success() {
-            return Err(anyhow::anyhow!(
-                "Failed to get state: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("No state file") || stderr.contains("no state") {
+                return super::state_analyzer::analyze_state("{}", resource_type, detect_drift);
+            }
+            return Err(anyhow::anyhow!("Failed to get state: {}", stderr));
         }
 
         let state_json = String::from_utf8_lossy(&output.stdout);
+        // terraform state pull returns empty string when no state exists
+        if state_json.trim().is_empty() {
+            return super::state_analyzer::analyze_state("{}", resource_type, detect_drift);
+        }
         super::state_analyzer::analyze_state(&state_json, resource_type, detect_drift)
     }
 

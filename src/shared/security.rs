@@ -62,6 +62,7 @@ impl Default for SecurityPolicy {
                 "plan".to_string(),
                 "show".to_string(),
                 "state".to_string(),
+                "refresh".to_string(),
             ],
             blocked_file_patterns: vec![
                 "**/prod*/**".to_string(),
