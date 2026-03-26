@@ -9,7 +9,7 @@ mod terraform;
 
 use clap::{Parser, Subcommand};
 use core::tfmcp::TfMcp;
-use mcp::server::TfMcpServer;
+use mcp::server::{TfMcpServer, ToolFilter};
 use shared::logging;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -49,7 +49,14 @@ pub struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     #[command(name = "mcp", about = "Launch tfmcp as an MCP server")]
-    Mcp,
+    Mcp {
+        /// Tool categories to enable (comma-separated): terraform, registry, analysis, all
+        #[arg(long, default_value = "all", value_delimiter = ',')]
+        toolsets: Vec<String>,
+        /// Individual tools to enable (comma-separated, overrides --toolsets)
+        #[arg(long, value_delimiter = ',')]
+        tools: Option<Vec<String>>,
+    },
 
     #[command(name = "analyze", about = "Analyze Terraform configurations")]
     Analyze,
@@ -69,11 +76,12 @@ async fn main() {
 
     match &cli.command {
         Some(cmd) => match cmd {
-            Commands::Mcp => {
+            Commands::Mcp { toolsets, tools } => {
                 logging::info("Starting tfmcp in MCP server mode");
+                let tool_filter = ToolFilter::from_cli(toolsets, tools.as_deref());
                 match init_tfmcp(&cli).await {
                     Ok(tfmcp) => {
-                        if let Err(err) = TfMcpServer::serve_stdio(tfmcp).await {
+                        if let Err(err) = TfMcpServer::serve_stdio(tfmcp, tool_filter).await {
                             logging::error(&format!("Error launching MCP server: {:?}", err));
                             std::process::exit(1);
                         }

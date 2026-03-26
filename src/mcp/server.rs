@@ -3,6 +3,7 @@
 use crate::core::tfmcp::TfMcp;
 use crate::mcp::types::*;
 use crate::registry::fallback::RegistryClientWithFallback;
+use crate::registry::policy::PolicyClient;
 use crate::registry::provider::ProviderResolver;
 use crate::shared::logging;
 use rmcp::{
@@ -10,20 +11,21 @@ use rmcp::{
     handler::server::{tool::ToolRouter, wrapper::Parameters},
     model::{
         Annotated, CallToolRequestParams, CallToolResult, Content, Implementation,
-        ListResourcesResult, ListToolsResult, PaginatedRequestParams, RawResource,
-        ReadResourceRequestParams, ReadResourceResult, ResourceContents, ServerCapabilities,
-        ServerInfo,
+        ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
+        RawResource, RawResourceTemplate, ReadResourceRequestParams, ReadResourceResult,
+        ResourceContents, ServerCapabilities, ServerInfo,
     },
     service::{RequestContext, RoleServer, ServiceExt},
     tool, tool_router,
 };
+use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 // Resource content for MCP resources
 use super::resources::{
-    TERRAFORM_BEST_PRACTICES, TERRAFORM_MODULE_DEVELOPMENT, TERRAFORM_STYLE_GUIDE,
+    SERVER_INSTRUCTIONS, TERRAFORM_BEST_PRACTICES, get_module_dev_content, get_style_guide_content,
 };
 
 /// Serialize a value to pretty JSON, returning an McpError on failure.
@@ -32,32 +34,145 @@ fn to_json(value: &impl serde::Serialize) -> Result<String, McpError> {
         .map_err(|e| McpError::internal_error(format!("JSON serialization failed: {e}"), None))
 }
 
+/// Tool filtering configuration.
+#[derive(Clone, Debug)]
+pub struct ToolFilter {
+    enabled_tools: Option<HashSet<String>>,
+}
+
+impl ToolFilter {
+    /// Create a filter that enables all tools.
+    pub fn all() -> Self {
+        Self {
+            enabled_tools: None,
+        }
+    }
+
+    /// Create a filter from toolset categories and optional individual tool list.
+    pub fn from_cli(toolsets: &[String], tools: Option<&[String]>) -> Self {
+        // If individual tools specified, use those exclusively
+        if let Some(tool_list) = tools {
+            return Self {
+                enabled_tools: Some(tool_list.iter().map(|s| s.to_string()).collect()),
+            };
+        }
+
+        let mut enabled = HashSet::new();
+        for toolset in toolsets {
+            match toolset.as_str() {
+                "all" => return Self::all(),
+                "terraform" => {
+                    for name in TOOLSET_TERRAFORM {
+                        enabled.insert(name.to_string());
+                    }
+                }
+                "registry" => {
+                    for name in TOOLSET_REGISTRY {
+                        enabled.insert(name.to_string());
+                    }
+                }
+                "analysis" => {
+                    for name in TOOLSET_ANALYSIS {
+                        enabled.insert(name.to_string());
+                    }
+                }
+                _ => {
+                    logging::error(&format!("Unknown toolset: {}", toolset));
+                }
+            }
+        }
+
+        if enabled.is_empty() {
+            Self::all()
+        } else {
+            Self {
+                enabled_tools: Some(enabled),
+            }
+        }
+    }
+
+    /// Check if a tool is enabled.
+    pub fn is_enabled(&self, tool_name: &str) -> bool {
+        match &self.enabled_tools {
+            None => true,
+            Some(set) => set.contains(tool_name),
+        }
+    }
+}
+
+const TOOLSET_TERRAFORM: &[&str] = &[
+    "init_terraform",
+    "get_terraform_plan",
+    "apply_terraform",
+    "destroy_terraform",
+    "validate_terraform",
+    "validate_terraform_detailed",
+    "get_terraform_state",
+    "list_terraform_resources",
+    "set_terraform_directory",
+    "terraform_workspace",
+    "terraform_fmt",
+    "terraform_graph",
+    "terraform_output",
+    "terraform_providers",
+    "terraform_import",
+    "terraform_taint",
+    "terraform_refresh",
+];
+
+const TOOLSET_REGISTRY: &[&str] = &[
+    "search_terraform_providers",
+    "get_provider_info",
+    "get_provider_docs",
+    "get_provider_capabilities",
+    "search_terraform_modules",
+    "get_module_details",
+    "get_latest_module_version",
+    "get_latest_provider_version",
+    "search_policies",
+    "get_policy_details",
+];
+
+const TOOLSET_ANALYSIS: &[&str] = &[
+    "analyze_terraform",
+    "analyze_module_health",
+    "get_resource_dependency_graph",
+    "suggest_module_refactoring",
+    "get_security_status",
+    "analyze_plan",
+    "analyze_state",
+];
+
 /// RMCP-based MCP server for Terraform operations.
 #[derive(Clone)]
 pub struct TfMcpServer {
     tfmcp: Arc<RwLock<TfMcp>>,
     registry_client: Arc<RegistryClientWithFallback>,
     provider_resolver: Arc<ProviderResolver>,
+    policy_client: Arc<PolicyClient>,
+    tool_filter: ToolFilter,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl TfMcpServer {
     /// Create a new TfMcpServer instance.
-    pub fn new(tfmcp: TfMcp) -> Self {
+    pub fn new(tfmcp: TfMcp, tool_filter: ToolFilter) -> Self {
         Self {
             tfmcp: Arc::new(RwLock::new(tfmcp)),
             registry_client: Arc::new(RegistryClientWithFallback::new()),
             provider_resolver: Arc::new(ProviderResolver::new()),
+            policy_client: Arc::new(PolicyClient::new()),
+            tool_filter,
             tool_router: Self::tool_router(),
         }
     }
 
-    /// Serve the MCP server over stdio.
-    pub async fn serve_stdio(tfmcp: TfMcp) -> anyhow::Result<()> {
+    /// Serve the MCP server over stdio with optional tool filtering.
+    pub async fn serve_stdio(tfmcp: TfMcp, tool_filter: ToolFilter) -> anyhow::Result<()> {
         use tokio::io::{stdin, stdout};
 
-        let server = Self::new(tfmcp);
+        let server = Self::new(tfmcp, tool_filter);
         let transport = (stdin(), stdout());
 
         logging::info("Starting tfmcp MCP server via stdio...");
@@ -939,6 +1054,145 @@ impl TfMcpServer {
             ))])),
         }
     }
+
+    // ============ v0.2.0 New Tools ============
+
+    #[tool(
+        description = "Search for Terraform policies (Sentinel/OPA) in the public registry",
+        annotations(
+            title = "Search Policies",
+            read_only_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn search_policies(
+        &self,
+        params: Parameters<PolicySearchInput>,
+    ) -> Result<CallToolResult, McpError> {
+        logging::info("Executing search_policies tool");
+        match self
+            .policy_client
+            .search_policies(&params.0.query, params.0.provider_filter.as_deref())
+            .await
+        {
+            Ok(policies) => {
+                let json = to_json(&serde_json::json!({ "policies": policies }))?;
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Policy search failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Get detailed information about a specific policy library from the registry",
+        annotations(
+            title = "Get Policy Details",
+            read_only_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn get_policy_details(
+        &self,
+        params: Parameters<PolicyDetailsInput>,
+    ) -> Result<CallToolResult, McpError> {
+        logging::info("Executing get_policy_details tool");
+        match self
+            .policy_client
+            .get_policy_details(&params.0.namespace, &params.0.name)
+            .await
+        {
+            Ok(policy) => {
+                let json = to_json(&serde_json::json!({ "policy": policy }))?;
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Policy details failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Get provider capabilities: resources, data sources, functions, and guides available",
+        annotations(
+            title = "Get Provider Capabilities",
+            read_only_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn get_provider_capabilities(
+        &self,
+        params: Parameters<ProviderCapabilitiesInput>,
+    ) -> Result<CallToolResult, McpError> {
+        logging::info("Executing get_provider_capabilities tool");
+        let namespace = params.0.namespace.as_deref().unwrap_or("hashicorp");
+        match self
+            .registry_client
+            .primary
+            .get_provider_info(&params.0.provider_name, namespace)
+            .await
+        {
+            Ok(info) => {
+                // Extract docs from the extra fields (API returns docs array)
+                let docs = info
+                    .extra
+                    .get("docs")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+
+                // Categorize docs by type
+                let mut categories: std::collections::HashMap<String, Vec<String>> =
+                    std::collections::HashMap::new();
+                for doc in &docs {
+                    let cat = doc
+                        .get("category")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("other")
+                        .to_string();
+                    let title = doc
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    categories.entry(cat).or_default().push(title);
+                }
+
+                let capabilities: serde_json::Value = categories
+                    .iter()
+                    .map(|(cat, items)| {
+                        (
+                            cat.clone(),
+                            serde_json::json!({
+                                "count": items.len(),
+                                "items": items.iter().take(20).collect::<Vec<_>>()
+                            }),
+                        )
+                    })
+                    .collect();
+
+                let json = to_json(&serde_json::json!({
+                    "provider": {
+                        "name": info.name,
+                        "namespace": namespace,
+                        "version": info.version,
+                        "description": info.description,
+                        "downloads": info.downloads,
+                    },
+                    "capabilities": capabilities,
+                    "total_docs": docs.len()
+                }))?;
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Provider capabilities failed: {}",
+                e
+            ))])),
+        }
+    }
 }
 
 // The ServerHandler trait requires this specific impl Future pattern
@@ -953,9 +1207,7 @@ impl ServerHandler for TfMcpServer {
         let server_info = Implementation::new("tfmcp", env!("CARGO_PKG_VERSION"));
         ServerInfo::new(capabilities)
             .with_server_info(server_info)
-            .with_instructions(
-                "tfmcp is a Terraform Model Context Protocol server. Use the tools to manage Terraform configurations.",
-            )
+            .with_instructions(SERVER_INSTRUCTIONS)
     }
 
     fn list_resources(
@@ -987,16 +1239,96 @@ impl ServerHandler for TfMcpServer {
         }
     }
 
+    fn list_resource_templates(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<ListResourceTemplatesResult, McpError>> + Send + '_ {
+        async move {
+            Ok(ListResourceTemplatesResult::with_all_items(vec![
+                Annotated::new(
+                    RawResourceTemplate::new(
+                        "terraform://providers/{namespace}/{name}/{version}/docs",
+                        "Provider Documentation",
+                    )
+                    .with_description(
+                        "Fetch documentation for a specific Terraform provider version",
+                    ),
+                    None,
+                ),
+            ]))
+        }
+    }
+
     fn read_resource(
         &self,
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ReadResourceResult, McpError>> + Send + '_ {
         async move {
+            // Handle dynamic provider doc URIs: terraform://providers/{ns}/{name}/{ver}/docs
+            if request.uri.starts_with("terraform://providers/") && request.uri.ends_with("/docs") {
+                let path = request
+                    .uri
+                    .trim_start_matches("terraform://providers/")
+                    .trim_end_matches("/docs");
+                let parts: Vec<&str> = path.split('/').collect();
+                if parts.len() == 3 {
+                    let (ns, name, _version) = (parts[0], parts[1], parts[2]);
+                    match self
+                        .registry_client
+                        .primary
+                        .get_provider_info(name, ns)
+                        .await
+                    {
+                        Ok(info) => {
+                            let docs = info
+                                .extra
+                                .get("docs")
+                                .and_then(|v| v.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            let content = format!(
+                                "# {} ({}/{})\n\nVersion: {}\n{}\n\n## Available Documentation ({} items)\n\n{}",
+                                info.name,
+                                ns,
+                                info.name,
+                                info.version,
+                                info.description,
+                                docs.len(),
+                                docs.iter()
+                                    .map(|d| {
+                                        let cat = d
+                                            .get("category")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("other");
+                                        let title =
+                                            d.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+                                        format!("- **[{}]** {}", cat, title)
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            );
+                            return Ok(ReadResourceResult::new(vec![ResourceContents::text(
+                                content,
+                                request.uri,
+                            )]));
+                        }
+                        Err(e) => {
+                            return Err(McpError::resource_not_found(
+                                format!("Provider not found: {}", e),
+                                None,
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Static resources with live fetch fallback
             let content = match request.uri.as_str() {
-                "terraform://style-guide" => TERRAFORM_STYLE_GUIDE,
-                "terraform://module-development" => TERRAFORM_MODULE_DEVELOPMENT,
-                "terraform://best-practices" => TERRAFORM_BEST_PRACTICES,
+                "terraform://style-guide" => get_style_guide_content().await,
+                "terraform://module-development" => get_module_dev_content().await,
+                "terraform://best-practices" => TERRAFORM_BEST_PRACTICES.to_string(),
                 _ => {
                     return Err(McpError::resource_not_found(
                         format!("Unknown resource: {}", request.uri),
@@ -1018,7 +1350,11 @@ impl ServerHandler for TfMcpServer {
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
         async move {
-            let tools = self.tool_router.list_all();
+            let all_tools = self.tool_router.list_all();
+            let tools = all_tools
+                .into_iter()
+                .filter(|t| self.tool_filter.is_enabled(t.name.as_ref()))
+                .collect();
             Ok(ListToolsResult {
                 tools,
                 ..Default::default()
@@ -1032,6 +1368,15 @@ impl ServerHandler for TfMcpServer {
         context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<CallToolResult, McpError>> + Send + '_ {
         async move {
+            if !self.tool_filter.is_enabled(&request.name) {
+                return Err(McpError::invalid_request(
+                    format!(
+                        "Tool '{}' is not enabled. Check --toolsets configuration.",
+                        request.name
+                    ),
+                    None,
+                ));
+            }
             let tool_context =
                 rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
             self.tool_router.call(tool_context).await

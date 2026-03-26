@@ -1,4 +1,6 @@
-//! MCP Resource content for Terraform guides and best practices.
+//! MCP Resource content for Terraform guides, best practices, and server instructions.
+
+use std::time::Duration;
 
 pub const TERRAFORM_STYLE_GUIDE: &str = r#"# Terraform Style Guide
 
@@ -587,3 +589,85 @@ terraform {
 }
 ```
 "#;
+
+// =============================================================================
+// Server Instructions (comprehensive LLM guidance)
+// =============================================================================
+
+pub const SERVER_INSTRUCTIONS: &str = r#"tfmcp is a Terraform MCP server for local development. It wraps the Terraform CLI and queries the Terraform Registry.
+
+## Tool Categories
+
+### Terraform Operations (local CLI)
+Start with `init_terraform`, then `validate_terraform` to check syntax, `get_terraform_plan` to preview changes, and `apply_terraform` to execute. Use `terraform_fmt` to auto-format code.
+
+### Configuration Analysis
+Use `analyze_terraform` for a project overview (resources, variables, outputs, providers). Use `analyze_module_health` for cohesion/coupling metrics and `get_resource_dependency_graph` for dependency visualization. `suggest_module_refactoring` provides improvement suggestions.
+
+### Registry Discovery
+Use `search_terraform_providers` or `search_terraform_modules` to discover available options. Then `get_provider_info`, `get_provider_docs`, or `get_provider_capabilities` for details. Use `search_policies` to find compliance policies.
+
+### State & Plan Analysis
+Use `analyze_plan` for risk scoring before apply. Use `analyze_state` for state inspection and drift detection.
+
+### Security
+Use `get_security_status` to check security policy, secret detection results, and compliance score.
+
+## Recommended Workflows
+
+1. **New project**: init → validate → analyze → plan → (review) → apply
+2. **Code review**: analyze_module_health → validate_terraform_detailed → analyze_plan
+3. **Provider discovery**: search_providers → get_provider_capabilities → get_provider_docs
+4. **Compliance check**: get_security_status → search_policies → analyze_module_health
+
+## Safety
+- `apply_terraform` and `destroy_terraform` require `TFMCP_ALLOW_DANGEROUS_OPS=true`
+- Always run `validate_terraform` and `get_terraform_plan` before applying
+- Use `terraform_import` with `execute: false` to preview before importing
+"#;
+
+// =============================================================================
+// Live documentation fetching
+// =============================================================================
+
+const STYLE_GUIDE_URL: &str = "https://raw.githubusercontent.com/hashicorp/web-unified-docs/refs/heads/main/website/docs/language/style.mdx";
+const MODULE_DEV_URL: &str = "https://raw.githubusercontent.com/hashicorp/web-unified-docs/refs/heads/main/website/docs/language/modules/develop/index.mdx";
+
+/// Attempt to fetch live documentation from GitHub, returns None on failure.
+pub async fn fetch_live_content(url: &str) -> Option<String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .ok()?;
+    let response = client.get(url).send().await.ok()?;
+    if response.status().is_success() {
+        let text = response.text().await.ok()?;
+        // Strip MDX frontmatter if present
+        if let Some(stripped) = text.strip_prefix("---") {
+            if let Some(end) = stripped.find("---") {
+                return Some(stripped[end + 3..].trim_start().to_string());
+            }
+        }
+        Some(text)
+    } else {
+        None
+    }
+}
+
+/// Get style guide content, trying live fetch first with embedded fallback.
+pub async fn get_style_guide_content() -> String {
+    if let Some(live) = fetch_live_content(STYLE_GUIDE_URL).await {
+        live
+    } else {
+        TERRAFORM_STYLE_GUIDE.to_string()
+    }
+}
+
+/// Get module development guide content, trying live fetch first with embedded fallback.
+pub async fn get_module_dev_content() -> String {
+    if let Some(live) = fetch_live_content(MODULE_DEV_URL).await {
+        live
+    } else {
+        TERRAFORM_MODULE_DEVELOPMENT.to_string()
+    }
+}

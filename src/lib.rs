@@ -4,6 +4,7 @@ pub mod registry {
     pub mod cache;
     pub mod client;
     pub mod fallback;
+    pub mod policy;
     pub mod provider;
 
     // Re-export commonly used items
@@ -11,6 +12,7 @@ pub mod registry {
     pub use cache::{CacheManager, SimpleCache};
     pub use client::{ProviderInfo, RegistryClient, RegistryError};
     pub use fallback::RegistryClientWithFallback;
+    pub use policy::PolicyClient;
     pub use provider::ProviderResolver;
 }
 

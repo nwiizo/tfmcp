@@ -57,7 +57,10 @@ output "file_path" {
 
     let dir_str = temp_dir.path().to_string_lossy().to_string();
     let tfmcp = TfMcp::new(None, Some(dir_str)).ok()?;
-    Some((TfMcpServer::new(tfmcp), temp_dir))
+    Some((
+        TfMcpServer::new(tfmcp, tfmcp::mcp::server::ToolFilter::all()),
+        temp_dir,
+    ))
 }
 
 /// Minimal client handler for E2E tests

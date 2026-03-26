@@ -77,7 +77,7 @@ async fn test_mcp_initialize_response() -> Result<()> {
         // This may fail if Terraform is not installed locally, but that's expected
         match TfMcp::new(None, Some(temp_dir_str)) {
             Ok(tfmcp) => {
-                let _server = TfMcpServer::new(tfmcp);
+                let _server = TfMcpServer::new(tfmcp, tfmcp::mcp::server::ToolFilter::all());
                 // Test that the server can be created without panicking
             }
             Err(_) => {
@@ -140,7 +140,7 @@ async fn test_mcp_tools_list() -> Result<()> {
         // This may fail if Terraform is not installed locally, but that's expected
         match TfMcp::new(None, Some(temp_dir_str)) {
             Ok(tfmcp) => {
-                let _server = TfMcpServer::new(tfmcp);
+                let _server = TfMcpServer::new(tfmcp, tfmcp::mcp::server::ToolFilter::all());
                 // Test that the server can be created
 
                 // Also test JSON structure
@@ -206,7 +206,7 @@ async fn test_mcp_error_handling() -> Result<()> {
         // This may fail if Terraform is not installed locally, but that's expected
         match TfMcp::new(None, Some(temp_dir_str)) {
             Ok(tfmcp) => {
-                let _server = TfMcpServer::new(tfmcp);
+                let _server = TfMcpServer::new(tfmcp, tfmcp::mcp::server::ToolFilter::all());
                 // Test that the server can be created
             }
             Err(_) => {
@@ -318,7 +318,7 @@ async fn test_rmcp_server_initialization_flow() -> Result<()> {
     match TfMcp::new(None, Some(temp_dir_str)) {
         Ok(tfmcp) => {
             // Create the server
-            let server = TfMcpServer::new(tfmcp);
+            let server = TfMcpServer::new(tfmcp, tfmcp::mcp::server::ToolFilter::all());
 
             // Test 1: Verify get_info returns valid InitializeResult
             let init_result = server.get_info();
@@ -396,7 +396,7 @@ async fn test_rmcp_server_tool_count() -> Result<()> {
     let temp_dir_str = temp_dir.path().to_string_lossy().to_string();
 
     if let Ok(tfmcp) = TfMcp::new(None, Some(temp_dir_str)) {
-        let _server = TfMcpServer::new(tfmcp);
+        let _server = TfMcpServer::new(tfmcp, tfmcp::mcp::server::ToolFilter::all());
         // Server created successfully - tools are registered via #[tool] macros
         println!("RMCP server with 21 tools created successfully");
     }
@@ -502,7 +502,7 @@ async fn test_mcp_server_capabilities() -> Result<()> {
     let temp_dir_str = temp_dir.path().to_string_lossy().to_string();
 
     if let Ok(tfmcp) = TfMcp::new(None, Some(temp_dir_str)) {
-        let server = TfMcpServer::new(tfmcp);
+        let server = TfMcpServer::new(tfmcp, tfmcp::mcp::server::ToolFilter::all());
         let init_result = server.get_info();
 
         // Verify capabilities are properly set

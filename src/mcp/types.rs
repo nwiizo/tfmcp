@@ -176,3 +176,32 @@ pub struct ProvidersInput {
     #[serde(default)]
     pub include_lock: bool,
 }
+
+// ==================== v0.2.0 New Input Types ====================
+
+/// Input for policy search
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PolicySearchInput {
+    /// Search query for policies (e.g., "aws", "CIS", "encryption")
+    pub query: String,
+    /// Filter by cloud provider (e.g., "aws", "google", "azurerm")
+    pub provider_filter: Option<String>,
+}
+
+/// Input for policy details lookup
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PolicyDetailsInput {
+    /// Policy namespace (e.g., "hashicorp")
+    pub namespace: String,
+    /// Policy name (e.g., "CIS-Policy-Set-for-AWS-Terraform")
+    pub name: String,
+}
+
+/// Input for provider capabilities lookup
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ProviderCapabilitiesInput {
+    /// Provider name (e.g., "aws", "google", "azurerm", "local")
+    pub provider_name: String,
+    /// Provider namespace (optional, defaults to "hashicorp")
+    pub namespace: Option<String>,
+}
