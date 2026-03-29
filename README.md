@@ -39,6 +39,10 @@ cargo install tfmcp
 - **📦 Provider Info**: Detailed provider information with lock file parsing
 - **🦀 Rust Edition 2024**: Migrated to Rust Edition 2024 (requires Rust 1.85.0+)
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/nwiizo-tfmcp).
+
 ## Features
 
 - 🚀 **Terraform Integration**
