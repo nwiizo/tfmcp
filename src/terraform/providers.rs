@@ -34,6 +34,15 @@ pub struct ProvidersResult {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderLockfileCheck {
+    pub lockfile_exists: bool,
+    pub provider_count: usize,
+    pub locked_providers: Vec<ProviderLock>,
+    pub warnings: Vec<String>,
+    pub recommendations: Vec<String>,
+}
+
 /// Get provider information
 pub fn get_providers(
     terraform_path: &Path,
@@ -50,7 +59,7 @@ pub fn get_providers(
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     if !output.status.success() {
-        return Err(anyhow::anyhow!("Failed to get providers: {}", stderr));
+        return Err(anyhow::anyhow!("Failed to get providers: {stderr}"));
     }
 
     // Parse provider output
@@ -70,6 +79,50 @@ pub fn get_providers(
         providers,
         locks,
         message,
+    })
+}
+
+pub fn check_provider_lockfile(project_dir: &Path) -> anyhow::Result<ProviderLockfileCheck> {
+    let lock_path = project_dir.join(".terraform.lock.hcl");
+    if !lock_path.exists() {
+        return Ok(ProviderLockfileCheck {
+            lockfile_exists: false,
+            provider_count: 0,
+            locked_providers: Vec::new(),
+            warnings: vec!["Provider lockfile .terraform.lock.hcl is missing".to_string()],
+            recommendations: vec![
+                "Run terraform init and commit .terraform.lock.hcl for reproducible provider selection"
+                    .to_string(),
+            ],
+        });
+    }
+
+    let locks = parse_lock_file(project_dir)?;
+    let mut warnings = Vec::new();
+    let mut recommendations = Vec::new();
+
+    if locks.is_empty() {
+        warnings.push("Provider lockfile exists but no provider entries were parsed".to_string());
+    }
+
+    for lock in &locks {
+        if lock.hashes.is_empty() {
+            warnings.push(format!("Provider {} has no hashes recorded", lock.name));
+        }
+        if lock.constraints.is_none() {
+            recommendations.push(format!(
+                "Add an explicit version constraint for provider {} in required_providers",
+                lock.name
+            ));
+        }
+    }
+
+    Ok(ProviderLockfileCheck {
+        lockfile_exists: true,
+        provider_count: locks.len(),
+        locked_providers: locks,
+        warnings,
+        recommendations,
     })
 }
 
@@ -361,5 +414,39 @@ terraform {
         extract_provider_requirements(content, &mut reqs);
         // Note: This simple parser may not catch all cases
         // The terraform providers command is more reliable
+    }
+
+    #[test]
+    fn test_check_provider_lockfile_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let check = check_provider_lockfile(dir.path()).unwrap();
+
+        assert!(!check.lockfile_exists);
+        assert_eq!(check.provider_count, 0);
+        assert!(!check.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_check_provider_lockfile_detects_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join(".terraform.lock.hcl"),
+            r#"
+provider "registry.terraform.io/hashicorp/aws" {
+  version     = "5.31.0"
+  constraints = "~> 5.0"
+  hashes = [
+    "h1:abc123",
+  ]
+}
+"#,
+        )
+        .unwrap();
+
+        let check = check_provider_lockfile(dir.path()).unwrap();
+
+        assert!(check.lockfile_exists);
+        assert_eq!(check.provider_count, 1);
+        assert!(check.warnings.is_empty());
     }
 }

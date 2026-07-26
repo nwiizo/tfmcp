@@ -23,50 +23,27 @@ pub struct FormatResult {
     pub message: String,
 }
 
-/// Check formatting without making changes
-pub fn check_format(
-    terraform_path: &Path,
-    project_dir: &Path,
-    file: Option<&str>,
-) -> anyhow::Result<FormatResult> {
-    format_internal(terraform_path, project_dir, file, true, false)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormatMode {
+    Check,
+    Diff,
+    Write,
 }
 
-/// Format files and show diff
-pub fn format_with_diff(
-    terraform_path: &Path,
-    project_dir: &Path,
-    file: Option<&str>,
-) -> anyhow::Result<FormatResult> {
-    format_internal(terraform_path, project_dir, file, false, true)
-}
-
-/// Format files in place
+/// Run Terraform formatting in check, diff, or write mode.
 pub fn format_files(
     terraform_path: &Path,
     project_dir: &Path,
     file: Option<&str>,
+    mode: FormatMode,
 ) -> anyhow::Result<FormatResult> {
-    format_internal(terraform_path, project_dir, file, false, false)
-}
-
-/// Internal format implementation
-fn format_internal(
-    terraform_path: &Path,
-    project_dir: &Path,
-    file: Option<&str>,
-    check_only: bool,
-    show_diff: bool,
-) -> anyhow::Result<FormatResult> {
+    let check_only = mode != FormatMode::Write;
+    let show_diff = mode == FormatMode::Diff;
     let mut cmd = Command::new(terraform_path);
     cmd.arg("fmt");
 
     if check_only {
         cmd.arg("-check");
-    }
-
-    if show_diff {
-        cmd.arg("-diff");
     }
 
     // List files that would be formatted
@@ -85,7 +62,6 @@ fn format_internal(
     let output = cmd.output()?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
 
     // Parse the output
     let mut file_results = Vec::new();
@@ -107,11 +83,12 @@ fn format_internal(
         files_formatted += 1;
     }
 
-    // If we're doing a diff check, parse the diff output
-    if show_diff && !stderr.is_empty() {
-        // Diffs are written to stdout when using -diff
-        if let Some(last_result) = file_results.last_mut() {
-            last_result.diff = Some(stderr.to_string());
+    if show_diff {
+        for result in &mut file_results {
+            let diff = format_diff(terraform_path, project_dir, &result.file)?;
+            if !diff.trim().is_empty() {
+                result.diff = Some(diff);
+            }
         }
     }
 
@@ -119,16 +96,16 @@ fn format_internal(
     let all_tf_files = count_tf_files(project_dir);
     let files_unchanged = all_tf_files.saturating_sub(files_formatted);
 
-    let success = output.status.success() || (!check_only && output.status.code() == Some(0));
+    let success = output.status.success();
 
     let message = if check_only {
         if output.status.success() {
             "All files are properly formatted".to_string()
         } else {
-            format!("{} files need formatting", files_formatted)
+            format!("{files_formatted} files need formatting")
         }
     } else if files_formatted > 0 {
-        format!("Formatted {} files", files_formatted)
+        format!("Formatted {files_formatted} files")
     } else {
         "No files needed formatting".to_string()
     };
@@ -141,6 +118,19 @@ fn format_internal(
         file_results,
         message,
     })
+}
+
+fn format_diff(terraform_path: &Path, project_dir: &Path, file: &str) -> anyhow::Result<String> {
+    let output = Command::new(terraform_path)
+        .args(["fmt", "-write=false", "-diff", "-list=false", file])
+        .current_dir(project_dir)
+        .output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() && stdout.is_empty() && !stderr.trim().is_empty() {
+        anyhow::bail!("terraform fmt diff failed for {file}: {}", stderr.trim());
+    }
+    Ok(stdout)
 }
 
 /// Count .tf files in a directory (recursive)
@@ -210,5 +200,29 @@ mod tests {
         let recommendations = get_format_recommendations();
         assert!(!recommendations.is_empty());
         assert!(recommendations.iter().any(|r| r.contains("indentation")));
+    }
+
+    #[test]
+    fn diff_mode_does_not_modify_files() {
+        let Ok(terraform) = which::which("terraform") else {
+            return;
+        };
+        let temp_dir = TempDir::new().unwrap();
+        let file = temp_dir.path().join("main.tf");
+        let original = "resource \"null_resource\" \"example\"{}\n";
+        fs::write(&file, original).unwrap();
+
+        let result = format_files(&terraform, temp_dir.path(), None, FormatMode::Diff).unwrap();
+
+        assert!(!result.success);
+        assert_eq!(fs::read_to_string(file).unwrap(), original);
+        assert!(
+            result.file_results.iter().any(|file| {
+                file.diff
+                    .as_deref()
+                    .is_some_and(|diff| diff.contains("--- old/"))
+            }),
+            "expected terraform fmt diff output, got {result:#?}"
+        );
     }
 }

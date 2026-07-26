@@ -185,7 +185,7 @@ impl SecurityManager {
                             }
                         } else {
                             // Exact match for middle directory
-                            if path_str.contains(&format!("/{}/", inner)) {
+                            if path_str.contains(&format!("/{inner}/")) {
                                 return true;
                             }
                         }
@@ -251,9 +251,7 @@ impl SecurityManager {
         if let Some(limit) = self.policy.max_resource_limit {
             if resource_count > limit {
                 return Err(anyhow::anyhow!(
-                    "Operation blocked: Resource count ({}) exceeds security limit ({})",
-                    resource_count,
-                    limit
+                    "Operation blocked: Resource count ({resource_count}) exceeds security limit ({limit})"
                 ));
             }
         }
@@ -275,7 +273,7 @@ impl SecurityManager {
                 .create(true)
                 .append(true)
                 .open(log_file)?;
-            file.write_all(format!("{}\n", log_line).as_bytes())?;
+            file.write_all(format!("{log_line}\n").as_bytes())?;
         }
         Ok(())
     }

@@ -1,7 +1,16 @@
 use crate::config::{self, Config};
 use crate::shared::logging;
-use crate::terraform::model::{DetailedValidationResult, TerraformAnalysis};
+use crate::terraform::model::core::TerraformAnalysis;
+use crate::terraform::model::graph::ResourceDependencyGraph;
+use crate::terraform::model::health::ModuleHealthAnalysis;
+use crate::terraform::model::refactoring::RefactoringSuggestion;
+use crate::terraform::model::validation::{DetailedValidationResult, GuidelineCheckResult};
+use crate::terraform::project::{TerraformEntrypoint, TerraformProjectInspection};
+use crate::terraform::quality::{QualitySeverity, TerraformQualityCheck, TerraformQualityReport};
 use crate::terraform::service::TerraformService;
+use crate::terraform::state_safety::{
+    DriftCandidates, StateSafetyInspection, TerraformChangePreparation,
+};
 use std::path::{Path, PathBuf};
 
 /// Sample Terraform configuration template for auto-bootstrap
@@ -54,10 +63,7 @@ impl TfMcp {
         // Check environment variable for Terraform directory first
         let env_terraform_dir = std::env::var("TERRAFORM_DIR").ok();
         if let Some(dir) = &env_terraform_dir {
-            logging::info(&format!(
-                "Found TERRAFORM_DIR environment variable: {}",
-                dir
-            ));
+            logging::info(&format!("Found TERRAFORM_DIR environment variable: {dir}"));
         }
 
         // Initialize config
@@ -65,7 +71,7 @@ impl TfMcp {
             Some(path) => {
                 let path_buf = PathBuf::from(&path);
                 if path_buf.is_absolute() {
-                    logging::info(&format!("Using absolute config path: {}", path));
+                    logging::info(&format!("Using absolute config path: {path}"));
                     config::init_from_path(&path)?
                 } else {
                     // Convert to absolute path
@@ -93,8 +99,7 @@ impl TfMcp {
                 let dir_buf = PathBuf::from(&dir);
                 if dir_buf.is_absolute() {
                     logging::info(&format!(
-                        "Using absolute project directory from CLI arg: {}",
-                        dir
+                        "Using absolute project directory from CLI arg: {dir}"
                     ));
                     dir_buf
                 } else {
@@ -111,8 +116,7 @@ impl TfMcp {
                 match env_terraform_dir {
                     Some(dir) => {
                         logging::info(&format!(
-                            "Using project directory from TERRAFORM_DIR env var: {}",
-                            dir
+                            "Using project directory from TERRAFORM_DIR env var: {dir}"
                         ));
                         PathBuf::from(dir)
                     }
@@ -122,8 +126,7 @@ impl TfMcp {
                                 let dir_buf = PathBuf::from(dir);
                                 if dir_buf.is_absolute() {
                                     logging::info(&format!(
-                                        "Using project directory from config: {}",
-                                        dir
+                                        "Using project directory from config: {dir}"
                                     ));
                                     dir_buf
                                 } else {
@@ -168,7 +171,7 @@ impl TfMcp {
             Some(path) => {
                 let path_buf = PathBuf::from(path);
                 if path_buf.is_absolute() {
-                    logging::info(&format!("Using specified Terraform binary: {}", path));
+                    logging::info(&format!("Using specified Terraform binary: {path}"));
                     path_buf
                 } else {
                     // Convert to absolute path
@@ -195,8 +198,7 @@ impl TfMcp {
                     }
                     Err(_) => {
                         logging::error(&format!(
-                            "Terraform binary '{}' not found in PATH",
-                            terraform_binary
+                            "Terraform binary '{terraform_binary}' not found in PATH"
                         ));
                         return Err(TfMcpError::TerraformNotFound.into());
                     }
@@ -261,6 +263,14 @@ impl TfMcp {
     #[allow(dead_code)]
     pub async fn get_terraform_analysis(&self) -> anyhow::Result<TerraformAnalysis> {
         self.terraform_service.analyze_configurations().await
+    }
+
+    pub async fn inspect_project(&self) -> anyhow::Result<TerraformProjectInspection> {
+        crate::terraform::project::inspect_project(&self.get_project_directory())
+    }
+
+    pub async fn detect_entrypoints(&self) -> anyhow::Result<Vec<TerraformEntrypoint>> {
+        crate::terraform::project::detect_entrypoints(&self.get_project_directory())
     }
 
     #[allow(dead_code)]
@@ -383,7 +393,7 @@ impl TfMcp {
                 Ok(())
             }
             Err(e) => {
-                logging::error(&format!("Failed to change project directory: {}", e));
+                logging::error(&format!("Failed to change project directory: {e}"));
                 Err(e)
             }
         }
@@ -397,30 +407,22 @@ impl TfMcp {
     // Module health analysis methods
 
     /// Analyze module health based on whitebox principles
-    pub async fn analyze_module_health(
-        &self,
-    ) -> anyhow::Result<crate::terraform::model::ModuleHealthAnalysis> {
+    pub async fn analyze_module_health(&self) -> anyhow::Result<ModuleHealthAnalysis> {
         self.terraform_service.analyze_module_health().await
     }
 
     /// Build resource dependency graph for visualization
-    pub async fn get_dependency_graph(
-        &self,
-    ) -> anyhow::Result<crate::terraform::model::ResourceDependencyGraph> {
+    pub async fn get_dependency_graph(&self) -> anyhow::Result<ResourceDependencyGraph> {
         self.terraform_service.get_dependency_graph().await
     }
 
     /// Generate refactoring suggestions
-    pub async fn suggest_refactoring(
-        &self,
-    ) -> anyhow::Result<Vec<crate::terraform::model::RefactoringSuggestion>> {
+    pub async fn suggest_refactoring(&self) -> anyhow::Result<Vec<RefactoringSuggestion>> {
         self.terraform_service.suggest_refactoring().await
     }
 
     /// Run security scan (secret detection, guideline compliance)
-    pub async fn run_security_scan(
-        &self,
-    ) -> anyhow::Result<crate::terraform::model::GuidelineCheckResult> {
+    pub async fn run_security_scan(&self) -> anyhow::Result<GuidelineCheckResult> {
         self.terraform_service.run_security_scan().await
     }
 
@@ -432,6 +434,20 @@ impl TfMcp {
         include_risk: bool,
     ) -> anyhow::Result<crate::terraform::plan_analyzer::PlanAnalysis> {
         self.terraform_service.analyze_plan(include_risk).await
+    }
+
+    pub async fn review_plan(&self) -> anyhow::Result<crate::terraform::plan_review::PlanReview> {
+        let analysis = self.analyze_plan(true).await?;
+        Ok(crate::terraform::plan_review::review_plan(&analysis))
+    }
+
+    pub async fn summarize_plan_for_pr(
+        &self,
+    ) -> anyhow::Result<crate::terraform::plan_review::PlanPrSummary> {
+        let analysis = self.analyze_plan(true).await?;
+        Ok(crate::terraform::plan_review::summarize_plan_for_pr(
+            &analysis,
+        ))
     }
 
     /// Analyze terraform state with optional drift detection
@@ -516,5 +532,279 @@ impl TfMcp {
         include_lock: bool,
     ) -> anyhow::Result<crate::terraform::providers::ProvidersResult> {
         self.terraform_service.get_providers(include_lock).await
+    }
+
+    pub async fn check_provider_lockfile(
+        &self,
+    ) -> anyhow::Result<crate::terraform::providers::ProviderLockfileCheck> {
+        crate::terraform::providers::check_provider_lockfile(&self.get_project_directory())
+    }
+
+    pub async fn run_quality_checks(&self) -> anyhow::Result<TerraformQualityReport> {
+        let project_directory = self.get_project_directory().display().to_string();
+        let mut checks = Vec::new();
+
+        checks.push(match self.inspect_project().await {
+            Ok(inspection) if inspection.total_tf_files > 0 && inspection.warnings.is_empty() => {
+                TerraformQualityCheck::passed(
+                    "project_inspection",
+                    format!(
+                        "{} Terraform files across {} directories",
+                        inspection.total_tf_files, inspection.total_directories
+                    ),
+                )
+            }
+            Ok(inspection) if inspection.total_tf_files > 0 => TerraformQualityCheck::new(
+                "project_inspection",
+                true,
+                QualitySeverity::Warning,
+                format!(
+                    "{} Terraform files with {} warning(s)",
+                    inspection.total_tf_files,
+                    inspection.warnings.len()
+                ),
+                inspection.warnings,
+                Vec::new(),
+            ),
+            Ok(_) => TerraformQualityCheck::new(
+                "project_inspection",
+                false,
+                QualitySeverity::Error,
+                "No Terraform files found",
+                Vec::new(),
+                vec!["Point TERRAFORM_DIR at a Terraform root module".to_string()],
+            ),
+            Err(error) => TerraformQualityCheck::new(
+                "project_inspection",
+                false,
+                QualitySeverity::Error,
+                "Project inspection failed",
+                vec![error.to_string()],
+                Vec::new(),
+            ),
+        });
+
+        match self.validate_configuration_detailed().await {
+            Ok(validation) => {
+                checks.push(validation_quality_check(&validation));
+                if let Some(guidelines) = &validation.guideline_checks {
+                    checks.push(guideline_quality_check(guidelines));
+                }
+            }
+            Err(error) => checks.push(TerraformQualityCheck::new(
+                "terraform_validate",
+                false,
+                QualitySeverity::Error,
+                "Terraform validation failed",
+                vec![error.to_string()],
+                vec!["Run terraform validate locally and fix reported diagnostics".to_string()],
+            )),
+        }
+
+        checks.push(match self.analyze_module_health().await {
+            Ok(health) => module_health_quality_check(&health),
+            Err(error) => TerraformQualityCheck::new(
+                "module_health",
+                false,
+                QualitySeverity::Error,
+                "Module health analysis failed",
+                vec![error.to_string()],
+                Vec::new(),
+            ),
+        });
+
+        checks.push(match self.check_provider_lockfile().await {
+            Ok(lockfile) if lockfile.lockfile_exists && lockfile.warnings.is_empty() => {
+                TerraformQualityCheck::passed(
+                    "provider_lockfile",
+                    format!("{} providers are locked", lockfile.provider_count),
+                )
+            }
+            Ok(lockfile) if lockfile.lockfile_exists => TerraformQualityCheck::new(
+                "provider_lockfile",
+                true,
+                QualitySeverity::Warning,
+                format!(
+                    "{} providers are locked with {} warning(s)",
+                    lockfile.provider_count,
+                    lockfile.warnings.len()
+                ),
+                lockfile.warnings,
+                lockfile.recommendations,
+            ),
+            Ok(lockfile) => TerraformQualityCheck::new(
+                "provider_lockfile",
+                false,
+                QualitySeverity::Error,
+                "Provider lockfile is missing",
+                lockfile.warnings,
+                lockfile.recommendations,
+            ),
+            Err(error) => TerraformQualityCheck::new(
+                "provider_lockfile",
+                false,
+                QualitySeverity::Error,
+                "Provider lockfile check failed",
+                vec![error.to_string()],
+                Vec::new(),
+            ),
+        });
+
+        Ok(TerraformQualityReport::new(project_directory, checks))
+    }
+
+    pub async fn inspect_state_safety(&self) -> anyhow::Result<StateSafetyInspection> {
+        let lockfile = self.check_provider_lockfile().await?;
+        let state = self
+            .analyze_state(None, true)
+            .await
+            .map_err(|error| error.to_string());
+        Ok(crate::terraform::state_safety::inspect_state_safety(
+            &self.get_project_directory(),
+            state,
+            lockfile,
+        ))
+    }
+
+    pub async fn detect_drift_candidates(&self) -> anyhow::Result<DriftCandidates> {
+        let state = self
+            .analyze_state(None, true)
+            .await
+            .map_err(|error| error.to_string());
+        Ok(crate::terraform::state_safety::drift_candidates(
+            &self.get_project_directory(),
+            state,
+        ))
+    }
+
+    pub async fn prepare_terraform_change(&self) -> anyhow::Result<TerraformChangePreparation> {
+        let inspection = self.inspect_state_safety().await?;
+        Ok(crate::terraform::state_safety::prepare_change(inspection))
+    }
+}
+
+fn validation_quality_check(validation: &DetailedValidationResult) -> TerraformQualityCheck {
+    let summary = format!(
+        "{} error(s), {} warning(s), {} checked file(s)",
+        validation.error_count, validation.warning_count, validation.checked_files
+    );
+
+    if validation.valid && validation.error_count == 0 {
+        let details = validation.additional_warnings.clone();
+        if details.is_empty() && validation.warning_count == 0 {
+            TerraformQualityCheck::passed("terraform_validate", summary)
+        } else {
+            TerraformQualityCheck::new(
+                "terraform_validate",
+                true,
+                QualitySeverity::Warning,
+                summary,
+                details,
+                validation.suggestions.clone(),
+            )
+        }
+    } else {
+        TerraformQualityCheck::new(
+            "terraform_validate",
+            false,
+            QualitySeverity::Error,
+            summary,
+            validation
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.summary.clone())
+                .collect(),
+            validation.suggestions.clone(),
+        )
+    }
+}
+
+fn guideline_quality_check(guidelines: &GuidelineCheckResult) -> TerraformQualityCheck {
+    let summary = format!("{}% guideline compliance", guidelines.compliance_score);
+    let mut details = Vec::new();
+
+    details.extend(
+        guidelines
+            .providers_missing_version
+            .iter()
+            .map(|provider| format!("Provider {provider} is missing a version constraint")),
+    );
+    details.extend(
+        guidelines
+            .hardcoded_secrets
+            .iter()
+            .map(|secret| format!("Potential secret in {}:{}", secret.file, secret.line)),
+    );
+    details.extend(
+        guidelines
+            .missing_lifecycle_protection
+            .iter()
+            .map(|resource| format!("{resource} is missing lifecycle.prevent_destroy")),
+    );
+
+    if guidelines.compliance_score >= 80 && guidelines.hardcoded_secrets.is_empty() {
+        if details.is_empty() {
+            TerraformQualityCheck::passed("terraform_guidelines", summary)
+        } else {
+            TerraformQualityCheck::new(
+                "terraform_guidelines",
+                true,
+                QualitySeverity::Warning,
+                summary,
+                details,
+                Vec::new(),
+            )
+        }
+    } else {
+        TerraformQualityCheck::new(
+            "terraform_guidelines",
+            false,
+            QualitySeverity::Error,
+            summary,
+            details,
+            vec!["Resolve guideline warnings before merging infrastructure changes".to_string()],
+        )
+    }
+}
+
+fn module_health_quality_check(health: &ModuleHealthAnalysis) -> TerraformQualityCheck {
+    let critical_issues = health
+        .issues
+        .iter()
+        .filter(|issue| issue.severity == crate::terraform::model::health::IssueSeverity::Critical)
+        .count();
+    let summary = format!(
+        "health score {}, {} issue(s)",
+        health.health_score,
+        health.issues.len()
+    );
+    let details = health
+        .issues
+        .iter()
+        .map(|issue| issue.message.clone())
+        .collect::<Vec<_>>();
+
+    if health.health_score >= 70 && critical_issues == 0 {
+        if health.issues.is_empty() {
+            TerraformQualityCheck::passed("module_health", summary)
+        } else {
+            TerraformQualityCheck::new(
+                "module_health",
+                true,
+                QualitySeverity::Warning,
+                summary,
+                details,
+                health.recommendations.clone(),
+            )
+        }
+    } else {
+        TerraformQualityCheck::new(
+            "module_health",
+            false,
+            QualitySeverity::Error,
+            summary,
+            details,
+            health.recommendations.clone(),
+        )
     }
 }

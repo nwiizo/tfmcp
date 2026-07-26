@@ -27,19 +27,15 @@ impl ProviderResolver {
         service_slug: &str,
         data_type: Option<&str>,
     ) -> Result<Vec<DocIdResult>, RegistryError> {
-        let cache_key = format!(
-            "docids:{}:{}:{}",
-            provider_namespace, provider_name, service_slug
-        );
+        let cache_key = format!("docids:{provider_namespace}:{provider_name}:{service_slug}");
 
         logging::debug(&format!(
-            "Resolving doc IDs for provider {}/{}, service: {}, type: {:?}",
-            provider_namespace, provider_name, service_slug, data_type
+            "Resolving doc IDs for provider {provider_namespace}/{provider_name}, service: {service_slug}, type: {data_type:?}"
         ));
 
         // Check cache first
         if let Some(cached_results) = self.cache.documentation_cache.get(&cache_key).await {
-            logging::debug(&format!("Found cached doc IDs for {}", cache_key));
+            logging::debug(&format!("Found cached doc IDs for {cache_key}"));
             if let Ok(results) = serde_json::from_str::<Vec<DocIdResult>>(&cached_results) {
                 return Ok(results);
             }
@@ -78,16 +74,13 @@ impl ProviderResolver {
     /// Stage 2: Get provider documentation content by ID
     #[allow(dead_code)]
     pub async fn get_provider_docs(&self, doc_id: &str) -> Result<String, RegistryError> {
-        let cache_key = format!("doc:{}", doc_id);
+        let cache_key = format!("doc:{doc_id}");
 
-        logging::debug(&format!(
-            "Fetching documentation content for ID: {}",
-            doc_id
-        ));
+        logging::debug(&format!("Fetching documentation content for ID: {doc_id}"));
 
         // Check cache first
         if let Some(cached_content) = self.cache.documentation_cache.get(&cache_key).await {
-            logging::debug(&format!("Found cached content for doc ID: {}", doc_id));
+            logging::debug(&format!("Found cached content for doc ID: {doc_id}"));
             return Ok(cached_content);
         }
 
@@ -111,13 +104,13 @@ impl ProviderResolver {
 
     /// Search providers with intelligent caching
     pub async fn search_providers(&self, query: &str) -> Result<Vec<ProviderInfo>, RegistryError> {
-        let cache_key = format!("search:{}", query);
+        let cache_key = format!("search:{query}");
 
-        logging::debug(&format!("Searching providers with query: {}", query));
+        logging::debug(&format!("Searching providers with query: {query}"));
 
         // Check cache for search results (shorter TTL)
         if let Some(cached_results) = self.cache.providers_cache.get(&cache_key).await {
-            logging::debug(&format!("Found cached search results for query: {}", query));
+            logging::debug(&format!("Found cached search results for query: {query}"));
             if let Ok(results) = serde_json::from_str::<Vec<ProviderInfo>>(&cached_results) {
                 return Ok(results);
             }
@@ -147,18 +140,16 @@ impl ProviderResolver {
         provider_name: &str,
         namespace: &str,
     ) -> Result<ProviderInfo, RegistryError> {
-        let cache_key = format!("info:{}:{}", namespace, provider_name);
+        let cache_key = format!("info:{namespace}:{provider_name}");
 
         logging::debug(&format!(
-            "Getting provider info for {}/{}",
-            namespace, provider_name
+            "Getting provider info for {namespace}/{provider_name}"
         ));
 
         // Check cache first
         if let Some(cached_info) = self.cache.providers_cache.get(&cache_key).await {
             logging::debug(&format!(
-                "Found cached provider info for {}/{}",
-                namespace, provider_name
+                "Found cached provider info for {namespace}/{provider_name}"
             ));
             if let Ok(info) = serde_json::from_str::<ProviderInfo>(&cached_info) {
                 return Ok(info);

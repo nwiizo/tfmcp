@@ -16,10 +16,10 @@ fn create_test_provider(name: &str, namespace: &str) -> ProviderInfo {
         name: name.to_string(),
         namespace: namespace.to_string(),
         version: "1.0.0".to_string(),
-        description: format!("Test provider for {}", name),
+        description: format!("Test provider for {name}"),
         downloads: 1000,
         published_at: "2023-01-01".to_string(),
-        id: format!("{}/{}", namespace, name),
+        id: format!("{namespace}/{name}"),
         source: None,
         tag: None,
         logo_url: None,
@@ -294,7 +294,7 @@ async fn test_performance_benchmarks() {
     for i in 0..100 {
         cache_manager
             .providers_cache
-            .set(format!("key_{}", i), format!("value_{}", i))
+            .set(format!("key_{i}"), format!("value_{i}"))
             .await;
     }
 
@@ -308,10 +308,7 @@ async fn test_performance_benchmarks() {
 
     // Test read performance
     for i in 0..100 {
-        let _ = cache_manager
-            .providers_cache
-            .get(&format!("key_{}", i))
-            .await;
+        let _ = cache_manager.providers_cache.get(&format!("key_{i}")).await;
     }
 
     let read_duration = read_start.elapsed();

@@ -236,8 +236,8 @@ pub fn analyze_state(
 /// Format resource address
 fn format_address(module: &Option<String>, resource_type: &str, name: &str) -> String {
     match module {
-        Some(m) if !m.is_empty() => format!("{}.{}.{}", m, resource_type, name),
-        _ => format!("{}.{}", resource_type, name),
+        Some(m) if !m.is_empty() => format!("{m}.{resource_type}.{name}"),
+        _ => format!("{resource_type}.{name}"),
     }
 }
 
@@ -327,8 +327,7 @@ fn run_health_checks(
             name: "no_tainted_resources".to_string(),
             status: HealthStatus::Warning,
             message: format!(
-                "{} tainted resources found - they will be recreated on next apply",
-                tainted_count
+                "{tainted_count} tainted resources found - they will be recreated on next apply"
             ),
         });
     } else {
@@ -348,15 +347,14 @@ fn run_health_checks(
                 name: "module_usage".to_string(),
                 status: HealthStatus::Warning,
                 message: format!(
-                    "Only {:.0}% of resources are in modules - consider modularizing",
-                    percentage
+                    "Only {percentage:.0}% of resources are in modules - consider modularizing"
                 ),
             });
         } else {
             checks.push(HealthCheck {
                 name: "module_usage".to_string(),
                 status: HealthStatus::Healthy,
-                message: format!("{:.0}% of resources are organized in modules", percentage),
+                message: format!("{percentage:.0}% of resources are organized in modules"),
             });
         }
     }

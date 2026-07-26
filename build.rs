@@ -19,5 +19,5 @@ fn main() {
         Err(_) => "unknown".to_string(),
     };
 
-    println!("cargo:rustc-env=GIT_HASH={}", git_hash);
+    println!("cargo:rustc-env=GIT_HASH={git_hash}");
 }

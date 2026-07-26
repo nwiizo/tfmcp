@@ -69,14 +69,14 @@ impl ToolDescription {
         if !self.constraints.is_empty() {
             prompt.push_str("\n\n## Constraints");
             for constraint in &self.constraints {
-                prompt.push_str(&format!("\n- {}", constraint));
+                prompt.push_str(&format!("\n- {constraint}"));
             }
         }
 
         if !self.security_notes.is_empty() {
             prompt.push_str("\n\n## Security Notes");
             for note in &self.security_notes {
-                prompt.push_str(&format!("\n- ⚠️ {}", note));
+                prompt.push_str(&format!("\n- ⚠️ {note}"));
             }
         }
 
@@ -97,7 +97,7 @@ impl ToolDescription {
         if !self.error_hints.is_empty() {
             prompt.push_str("\n\n## Troubleshooting");
             for (error_type, hint) in &self.error_hints {
-                prompt.push_str(&format!("\n- **{}**: {}", error_type, hint));
+                prompt.push_str(&format!("\n- **{error_type}**: {hint}"));
             }
         }
 
@@ -151,11 +151,10 @@ impl McpToolBuilder {
         self
     }
 
-    /// Build the complete MCP tool definition
-    pub fn build(self) -> serde_json::Value {
+    fn build_with_description(self, description: String) -> serde_json::Value {
         let mut tool = serde_json::json!({
             "name": self.name,
-            "description": self.description.build_prompt(),
+            "description": description,
             "inputSchema": self.input_schema
         });
 
@@ -166,19 +165,16 @@ impl McpToolBuilder {
         tool
     }
 
+    /// Build the complete MCP tool definition
+    pub fn build(self) -> serde_json::Value {
+        let description = self.description.build_prompt();
+        self.build_with_description(description)
+    }
+
     /// Build a compact version of the tool definition
     pub fn build_compact(self) -> serde_json::Value {
-        let mut tool = serde_json::json!({
-            "name": self.name,
-            "description": self.description.build_compact_prompt(),
-            "inputSchema": self.input_schema
-        });
-
-        if let Some(output_schema) = self.output_schema {
-            tool["outputSchema"] = output_schema;
-        }
-
-        tool
+        let description = self.description.build_compact_prompt();
+        self.build_with_description(description)
     }
 }
 
@@ -261,7 +257,8 @@ mod tests {
     #[test]
     fn test_mcp_tool_builder() {
         let desc = ToolDescription::new("Test MCP tool");
-        let builder = McpToolBuilder::new("test_tool", desc);
+        let builder = McpToolBuilder::new("test_tool", desc)
+            .with_output_schema(serde_json::json!({"type": "object"}));
         let tool = builder.build();
 
         assert_eq!(tool["name"], "test_tool");
@@ -272,6 +269,19 @@ mod tests {
                 .contains("Test MCP tool")
         );
         assert!(tool["inputSchema"].is_object());
+        assert!(tool["outputSchema"].is_object());
+    }
+
+    #[test]
+    fn test_mcp_tool_builder_compact() {
+        let desc = ToolDescription::new("Test MCP tool").with_constraint("Small context");
+        let tool = McpToolBuilder::new("test_tool", desc).build_compact();
+
+        assert_eq!(tool["name"], "test_tool");
+        assert_eq!(
+            tool["description"],
+            "Test MCP tool Constraints: Small context"
+        );
     }
 
     #[test]

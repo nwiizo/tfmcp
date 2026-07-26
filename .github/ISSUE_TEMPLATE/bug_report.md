@@ -26,9 +26,9 @@ If applicable, add screenshots to help explain your problem.
 
 ## Environment
  - OS: [e.g. macOS 14.1, Ubuntu 22.04]
- - Terraform Version: [e.g. 1.5.7]
- - tfmcp Version: [e.g. 0.1.0]
- - Rust Version: [e.g. 1.75.0]
+ - Terraform Version: [e.g. 1.15.8]
+ - tfmcp Version: [e.g. 0.2.1]
+ - Rust Version: [e.g. 1.88.0]
 
 ## Additional Context
-Add any other context about the problem here. 
+Add any other context about the problem here.

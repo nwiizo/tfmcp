@@ -14,7 +14,7 @@ cargo fmt --all && RUSTFLAGS="-Dwarnings" cargo clippy --all-targets --all-featu
 | Module | Purpose |
 |--------|---------|
 | `src/core/` | Main application logic |
-| `src/mcp/` | RMCP-based MCP server (21 tools, 3 resources) |
+| `src/mcp/` | RMCP server, tool routing, protocol handling, and transports |
 | `src/terraform/` | Terraform CLI integration |
 | `src/registry/` | Terraform Registry API client |
 

@@ -23,7 +23,7 @@ impl Display for LogLevel {
 /// Log a message to stderr with timestamp and log level
 pub fn log(level: LogLevel, message: &str) {
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-    eprintln!("[{}] [{}] {}", timestamp, level, message);
+    eprintln!("[{timestamp}] [{level}] {message}");
 }
 
 /// Log debug level message

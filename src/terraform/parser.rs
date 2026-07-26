@@ -1,4 +1,4 @@
-use crate::terraform::model::{
+use crate::terraform::model::core::{
     TerraformOutput, TerraformProvider, TerraformResource, TerraformVariable,
 };
 use regex::Regex;

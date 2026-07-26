@@ -58,7 +58,7 @@ pub fn get_outputs(
             ));
         }
 
-        return Err(anyhow::anyhow!("Failed to get outputs: {}", stderr));
+        return Err(anyhow::anyhow!("Failed to get outputs: {stderr}"));
     }
 
     // Parse JSON output
@@ -77,7 +77,7 @@ pub fn get_outputs(
                         description: None,
                     }]
                 }
-                Err(e) => return Err(anyhow::anyhow!("Failed to parse output JSON: {}", e)),
+                Err(e) => return Err(anyhow::anyhow!("Failed to parse output JSON: {e}")),
             }
         }
     } else {
@@ -116,7 +116,7 @@ pub fn get_outputs(
                 Ok(_) => {
                     return Err(anyhow::anyhow!("Unexpected output format"));
                 }
-                Err(e) => return Err(anyhow::anyhow!("Failed to parse outputs JSON: {}", e)),
+                Err(e) => return Err(anyhow::anyhow!("Failed to parse outputs JSON: {e}")),
             }
         }
     };
@@ -168,7 +168,7 @@ pub fn get_outputs_simple(
         if stderr.contains("No outputs found") {
             return Ok(vec![]);
         }
-        return Err(anyhow::anyhow!("Failed to get outputs: {}", stderr));
+        return Err(anyhow::anyhow!("Failed to get outputs: {stderr}"));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);

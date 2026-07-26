@@ -1,68 +1,12 @@
-// Re-export modules for testing and external use
-pub mod registry {
-    pub mod batch;
-    pub mod cache;
-    pub mod client;
-    pub mod fallback;
-    pub mod policy;
-    pub mod provider;
-
-    // Re-export commonly used items
-    pub use batch::BatchFetcher;
-    pub use cache::{CacheManager, SimpleCache};
-    pub use client::{ProviderInfo, RegistryClient, RegistryError};
-    pub use fallback::RegistryClientWithFallback;
-    pub use policy::PolicyClient;
-    pub use provider::ProviderResolver;
-}
-
-pub mod formatters {
-    pub mod output;
-
-    pub use output::OutputFormatter;
-}
-
-pub mod prompts {
-    pub mod builder;
-    pub mod descriptions;
-
-    pub use builder::{ToolDescription, ToolExample};
-}
-
-pub mod shared {
-    pub mod logging;
-    pub mod security;
-    pub mod utils;
-}
-
-pub mod terraform {
-    pub mod analyzer;
-    pub mod fmt;
-    pub mod graph;
-    pub mod import_helper;
-    pub mod model;
-    pub mod output;
-    pub mod parser;
-    pub mod plan_analyzer;
-    pub mod providers;
-    pub mod refresh;
-    pub mod service;
-    pub mod state_analyzer;
-    pub mod taint;
-    pub mod workspace;
-}
-
-pub mod core {
-    pub mod tfmcp;
-}
-
-pub mod mcp {
-    pub mod resources;
-    pub mod server;
-    pub mod types;
-}
-
 pub mod config;
+pub mod core;
+pub mod formatters;
+pub mod mcp;
+pub mod prompts;
+pub mod registry;
+pub mod shared;
+pub mod terraform;
+pub mod tfe;
 
 // Re-export commonly used types for easier testing and external use
 pub use core::tfmcp::TfMcp;

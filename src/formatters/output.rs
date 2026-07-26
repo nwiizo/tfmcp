@@ -9,25 +9,20 @@ pub struct OutputFormatter;
 impl OutputFormatter {
     /// Format provider search results in a structured way
     pub fn format_provider_list(providers: Vec<ProviderInfo>) -> Value {
-        json!({
-            "summary": {
-                "total_providers": providers.len(),
-                "description": "List of Terraform providers matching your search criteria"
-            },
-            "providers": providers.iter().map(|provider| {
-                json!({
-                    "id": format!("{}/{}", provider.namespace, provider.name),
-                    "name": provider.name,
-                    "namespace": provider.namespace,
-                    "version": provider.version,
-                    "description": provider.description,
-                    "downloads": provider.downloads,
-                    "published_at": provider.published_at,
-                    "registry_url": format!("https://registry.terraform.io/providers/{}/{}", provider.namespace, provider.name)
-                })
-            }).collect::<Vec<_>>(),
-            "usage_note": "Use the 'id' field to reference these providers in your Terraform configuration"
-        })
+        let entries = providers
+            .iter()
+            .map(Self::format_provider_list_entry)
+            .collect::<Vec<_>>();
+        Self::provider_collection_json(
+            "summary",
+            providers.len(),
+            "List of Terraform providers matching your search criteria",
+            entries,
+            Some((
+                "usage_note",
+                "Use the 'id' field to reference these providers in your Terraform configuration",
+            )),
+        )
     }
 
     /// Format provider information with comprehensive details
@@ -175,27 +170,19 @@ impl OutputFormatter {
 
     /// Format comprehensive provider comparison
     pub fn format_provider_comparison(providers: Vec<(ProviderInfo, Vec<String>)>) -> Value {
-        json!({
-            "comparison": {
-                "total_providers": providers.len(),
-                "description": "Comparison of multiple Terraform providers"
-            },
-            "providers": providers.iter().map(|(provider, versions)| {
-                json!({
-                    "id": format!("{}/{}", provider.namespace, provider.name),
-                    "name": provider.name,
-                    "namespace": provider.namespace,
-                    "current_version": provider.version,
-                    "description": provider.description,
-                    "downloads": provider.downloads,
-                    "version_count": versions.len(),
-                    "latest_versions": versions.iter().take(3).collect::<Vec<_>>(),
-                    "popularity_score": Self::calculate_popularity_score(provider.downloads),
-                    "maturity": Self::assess_maturity(versions)
-                })
-            }).collect::<Vec<_>>(),
-            "recommendations": Self::generate_provider_recommendations(&providers)
-        })
+        let entries = providers
+            .iter()
+            .map(|(provider, versions)| Self::format_provider_comparison_entry(provider, versions))
+            .collect::<Vec<_>>();
+        let mut result = Self::provider_collection_json(
+            "comparison",
+            providers.len(),
+            "Comparison of multiple Terraform providers",
+            entries,
+            None,
+        );
+        result["recommendations"] = json!(Self::generate_provider_recommendations(&providers));
+        result
     }
 
     /// Format cache statistics
@@ -223,6 +210,63 @@ impl OutputFormatter {
     }
 
     // Helper methods
+    fn provider_collection_json(
+        section: &str,
+        total_providers: usize,
+        description: &str,
+        providers: Vec<Value>,
+        note: Option<(&str, &str)>,
+    ) -> Value {
+        let mut result = json!({
+            section: {
+                "total_providers": total_providers,
+                "description": description
+            },
+            "providers": providers
+        });
+
+        if let Some((key, value)) = note {
+            result[key] = json!(value);
+        }
+
+        result
+    }
+
+    fn format_provider_base(provider: &ProviderInfo) -> Value {
+        json!({
+            "id": format!("{}/{}", provider.namespace, provider.name),
+            "name": provider.name,
+            "namespace": provider.namespace,
+            "description": provider.description,
+            "downloads": provider.downloads
+        })
+    }
+
+    fn format_provider_list_entry(provider: &ProviderInfo) -> Value {
+        let mut entry = Self::format_provider_base(provider);
+        entry["version"] = json!(provider.version);
+        entry["published_at"] = json!(provider.published_at);
+        entry["registry_url"] = json!(Self::provider_registry_url(provider));
+        entry
+    }
+
+    fn format_provider_comparison_entry(provider: &ProviderInfo, versions: &[String]) -> Value {
+        let mut entry = Self::format_provider_base(provider);
+        entry["current_version"] = json!(provider.version);
+        entry["version_count"] = json!(versions.len());
+        entry["latest_versions"] = json!(versions.iter().take(3).collect::<Vec<_>>());
+        entry["popularity_score"] = json!(Self::calculate_popularity_score(provider.downloads));
+        entry["maturity"] = json!(Self::assess_maturity(versions));
+        entry
+    }
+
+    fn provider_registry_url(provider: &ProviderInfo) -> String {
+        format!(
+            "https://registry.terraform.io/providers/{}/{}",
+            provider.namespace, provider.name
+        )
+    }
+
     fn calculate_popularity_score(downloads: u64) -> &'static str {
         match downloads {
             0..=1000 => "low",

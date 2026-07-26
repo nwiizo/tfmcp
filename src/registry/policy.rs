@@ -52,9 +52,9 @@ impl PolicyClient {
         query: &str,
         provider_filter: Option<&str>,
     ) -> anyhow::Result<Vec<PolicyInfo>> {
-        let mut url = format!("{}/v2/policies?page[size]=20", REGISTRY_BASE);
+        let mut url = format!("{REGISTRY_BASE}/v2/policies?page[size]=20");
         if let Some(provider) = provider_filter {
-            url.push_str(&format!("&filter[provider]={}", provider));
+            url.push_str(&format!("&filter[provider]={provider}"));
         }
 
         debug!("Searching policies: {}", url);
@@ -106,7 +106,7 @@ impl PolicyClient {
         namespace: &str,
         name: &str,
     ) -> anyhow::Result<PolicyInfo> {
-        let url = format!("{}/v2/policies/{}/{}", REGISTRY_BASE, namespace, name);
+        let url = format!("{REGISTRY_BASE}/v2/policies/{namespace}/{name}");
         debug!("Fetching policy details: {}", url);
 
         let response = self.client.get(&url).send().await?;
@@ -124,9 +124,8 @@ impl PolicyClient {
             .get("data")
             .ok_or_else(|| anyhow::anyhow!("Invalid response: missing 'data' field"))?;
 
-        parse_policy_item(item).ok_or_else(|| {
-            anyhow::anyhow!("Failed to parse policy details for {}/{}", namespace, name)
-        })
+        parse_policy_item(item)
+            .ok_or_else(|| anyhow::anyhow!("Failed to parse policy details for {namespace}/{name}"))
     }
 }
 

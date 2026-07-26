@@ -1,59 +1,45 @@
 # Quality Commands
 
-## Development Workflow
+## Fast development loop
 
 ```bash
-# Format code (always run before commits)
 cargo fmt --all
-
-# Lint with warnings as errors (same as CI)
-RUSTFLAGS="-Dwarnings" cargo clippy --all-targets --all-features
-
-# Run tests with locked dependencies like CI
-cargo test --locked --all-features --verbose
-
-# Build the project
-cargo build --release --locked --all-features --verbose
-
-# Install from source
-cargo install --path .
-```
-
-## Pre-Commit Quality Checks
-
-**MANDATORY: Run these commands before every commit:**
-
-```bash
-# 1. Format code
-cargo fmt --all
-
-# 2. Check for clippy warnings (with CI-level strictness)
-RUSTFLAGS="-Dwarnings" cargo clippy --all-targets --all-features
-
-# 3. Run all tests
+RUSTFLAGS="-Dwarnings" cargo check --all-targets --all-features
 cargo test --locked --all-features
-
-# 4. Verify formatting is correct
-cargo fmt --all -- --check
 ```
 
-**If any of these fail, DO NOT COMMIT until fixed.**
-
-## CI/CD Quality Standards
-
-Our CI pipeline enforces strict quality standards:
-- `RUSTFLAGS="-Dwarnings"` - All warnings are treated as errors
-- `cargo fmt --all -- --check` - Code formatting must be perfect
-- `cargo clippy --all-targets --all-features -- -D warnings` - No clippy warnings allowed
-- `cargo test --locked --all-features --verbose` - All tests must pass
-- Security audit with `cargo audit`
-- Cross-platform testing (Ubuntu, Windows, macOS)
-
-## Standard Rust CI workflow
+## Before commit
 
 ```bash
-cargo fmt --all -- --check           # Formatting check
-cargo clippy --all-targets -- -D warnings  # Linting with warnings as errors
-cargo test --locked --all-features   # Testing with locked dependencies
-cargo build --release --locked       # Release build verification
+cargo fmt --all -- --check
+RUSTFLAGS="-Dwarnings" cargo clippy --all-targets --all-features
+cargo test --locked --all-features
+git diff --check
 ```
+
+Do not commit while a required check fails.
+
+## Architecture diagnostics
+
+```bash
+cargo coupling --ai --git-months 6 --exclude-tests
+cargo coupling --hotspots 10 --deps
+similarity-rs src --skip-test --threshold 0.90 --min-lines 8
+```
+
+Use these as design signals. Prefer moving behavior to its domain owner,
+splitting router/protocol/configuration responsibilities, or introducing one
+named mode over creating pass-through abstractions.
+
+## Release gate
+
+Run `./Release.sh vX.Y.Z`. The script additionally enforces:
+
+- `cargo audit`
+- coupling grade B or better, no Critical/High/cycles, and at most 40
+  dependencies per checked module
+- no duplicate functions at 0.90 similarity with at least 8 lines
+- valid MCP Registry metadata and synchronized versions
+- locked release build, package, and publish dry run
+
+CI tests Terraform 1.15.8 on Linux, macOS, and Windows.

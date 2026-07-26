@@ -1,13 +1,16 @@
 use crate::shared::security::SecurityManager;
 use crate::terraform::analyzer;
-use crate::terraform::model::{
-    DetailedValidationResult, GuidelineCheckResult, ModuleHealthAnalysis, RefactoringSuggestion,
-    ResourceDependencyGraph, TerraformAnalysis, TerraformValidateOutput,
+use crate::terraform::model::core::TerraformAnalysis;
+use crate::terraform::model::graph::ResourceDependencyGraph;
+use crate::terraform::model::health::ModuleHealthAnalysis;
+use crate::terraform::model::refactoring::RefactoringSuggestion;
+use crate::terraform::model::validation::{
+    DetailedValidationResult, GuidelineCheckResult, TerraformValidateOutput,
 };
 use crate::terraform::parser::TerraformParser;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 
 pub struct TerraformService {
     terraform_path: PathBuf,
@@ -23,7 +26,7 @@ impl TerraformService {
             project_directory.display()
         );
         let security_manager = SecurityManager::new().unwrap_or_else(|e| {
-            eprintln!("[WARN] Failed to initialize security manager: {}", e);
+            eprintln!("[WARN] Failed to initialize security manager: {e}");
             // Create a default security manager with basic settings
             SecurityManager {
                 policy: crate::shared::security::SecurityPolicy::default(),
@@ -48,6 +51,39 @@ impl TerraformService {
 
     pub fn get_project_directory(&self) -> &PathBuf {
         &self.project_directory
+    }
+
+    fn run_terraform(&self, args: &[&str]) -> anyhow::Result<Output> {
+        Ok(Command::new(&self.terraform_path)
+            .args(args)
+            .current_dir(&self.project_directory)
+            .output()?)
+    }
+
+    fn output_stdout(output: &Output) -> String {
+        String::from_utf8_lossy(&output.stdout).to_string()
+    }
+
+    fn output_stderr(output: &Output) -> String {
+        String::from_utf8_lossy(&output.stderr).to_string()
+    }
+
+    fn run_terraform_stdout(&self, args: &[&str], error_prefix: &str) -> anyhow::Result<String> {
+        let output = self.run_terraform(args)?;
+
+        if output.status.success() {
+            Ok(Self::output_stdout(&output))
+        } else {
+            Err(anyhow::anyhow!(
+                "{}: {}",
+                error_prefix,
+                Self::output_stderr(&output)
+            ))
+        }
+    }
+
+    fn is_missing_state(stderr: &str) -> bool {
+        stderr.contains("No state file") || stderr.contains("no state")
     }
 
     pub async fn get_version(&self) -> anyhow::Result<String> {
@@ -78,38 +114,22 @@ impl TerraformService {
     }
 
     pub async fn init(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.terraform_path)
-            .arg("init")
-            .current_dir(&self.project_directory)
-            .output()?;
-
-        if output.status.success() {
-            Ok(String::from_utf8_lossy(&output.stdout).to_string())
-        } else {
-            Err(anyhow::anyhow!(
-                "Terraform init failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ))
-        }
+        self.run_terraform_stdout(&["init"], "Terraform init failed")
     }
 
     pub async fn get_plan(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.terraform_path)
-            .arg("plan")
-            .arg("-json")
-            .current_dir(&self.project_directory)
-            .output()?;
+        let output = self.run_terraform(&["plan", "-json"])?;
 
         if output.status.success() {
-            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+            Ok(Self::output_stdout(&output))
         } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = Self::output_stderr(&output);
             if stderr.contains("terraform init") {
                 Err(anyhow::anyhow!(
                     "Terraform initialization required. Please run 'terraform init' first."
                 ))
             } else {
-                Err(anyhow::anyhow!("Terraform plan failed: {}", stderr))
+                Err(anyhow::anyhow!("Terraform plan failed: {stderr}"))
             }
         }
     }
@@ -172,7 +192,7 @@ impl TerraformService {
         );
 
         if let Err(e) = self.security_manager.log_audit_entry(audit_entry) {
-            eprintln!("[WARN] Failed to log audit entry: {}", e);
+            eprintln!("[WARN] Failed to log audit entry: {e}");
         }
 
         if success {
@@ -186,38 +206,22 @@ impl TerraformService {
     }
 
     pub async fn get_state(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.terraform_path)
-            .arg("state")
-            .arg("list")
-            .current_dir(&self.project_directory)
-            .output()?;
+        let output = self.run_terraform(&["state", "list"])?;
 
         if output.status.success() {
-            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+            Ok(Self::output_stdout(&output))
         } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if stderr.contains("No state file") || stderr.contains("no state") {
+            let stderr = Self::output_stderr(&output);
+            if Self::is_missing_state(&stderr) {
                 return Ok("(no state)".to_string());
             }
-            Err(anyhow::anyhow!("Failed to get Terraform state: {}", stderr))
+            Err(anyhow::anyhow!("Failed to get Terraform state: {stderr}"))
         }
     }
 
     #[allow(dead_code)]
     pub async fn refresh(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.terraform_path)
-            .arg("refresh")
-            .current_dir(&self.project_directory)
-            .output()?;
-
-        if output.status.success() {
-            Ok(String::from_utf8_lossy(&output.stdout).to_string())
-        } else {
-            Err(anyhow::anyhow!(
-                "Terraform refresh failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ))
-        }
+        self.run_terraform_stdout(&["refresh"], "Terraform refresh failed")
     }
 
     #[allow(dead_code)]
@@ -246,19 +250,15 @@ impl TerraformService {
     }
 
     pub async fn list_resources(&self) -> anyhow::Result<Vec<String>> {
-        let output = Command::new(&self.terraform_path)
-            .arg("state")
-            .arg("list")
-            .current_dir(&self.project_directory)
-            .output()?;
+        let output = self.run_terraform(&["state", "list"])?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = Self::output_stderr(&output);
             // No state file is not an error — just means no resources yet
-            if stderr.contains("No state file") || stderr.contains("no state") {
+            if Self::is_missing_state(&stderr) {
                 return Ok(Vec::new());
             }
-            return Err(anyhow::anyhow!("Failed to list resources: {}", stderr));
+            return Err(anyhow::anyhow!("Failed to list resources: {stderr}"));
         }
 
         let resources = String::from_utf8_lossy(&output.stdout)
@@ -271,20 +271,7 @@ impl TerraformService {
     }
 
     pub async fn validate(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.terraform_path)
-            .arg("validate")
-            .arg("-json")
-            .current_dir(&self.project_directory)
-            .output()?;
-
-        if output.status.success() {
-            Ok(String::from_utf8_lossy(&output.stdout).to_string())
-        } else {
-            Err(anyhow::anyhow!(
-                "Terraform validate failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ))
-        }
+        self.run_terraform_stdout(&["validate", "-json"], "Terraform validate failed")
     }
 
     pub async fn validate_detailed(&self) -> anyhow::Result<DetailedValidationResult> {
@@ -314,22 +301,19 @@ impl TerraformService {
             // Add suggestions based on guideline checks
             for var_name in &checks.variables_missing_type {
                 suggestions.push(format!(
-                    "[Guideline] Variable '{}' is missing a type definition",
-                    var_name
+                    "[Guideline] Variable '{var_name}' is missing a type definition"
                 ));
             }
 
             for var_name in &checks.variables_missing_description {
                 suggestions.push(format!(
-                    "[Guideline] Variable '{}' is missing a description",
-                    var_name
+                    "[Guideline] Variable '{var_name}' is missing a description"
                 ));
             }
 
             for output_name in &checks.outputs_missing_description {
                 suggestions.push(format!(
-                    "[Guideline] Output '{}' is missing a description",
-                    output_name
+                    "[Guideline] Output '{output_name}' is missing a description"
                 ));
             }
 
@@ -342,15 +326,13 @@ impl TerraformService {
 
             for var_name in &checks.any_type_usage {
                 suggestions.push(format!(
-                    "[Guideline] Variable '{}' uses 'any' type - consider using a specific type",
-                    var_name
+                    "[Guideline] Variable '{var_name}' uses 'any' type - consider using a specific type"
                 ));
             }
 
             for provider_name in &checks.providers_missing_version {
                 warnings.push(format!(
-                    "[Guideline] Provider '{}' is missing a version constraint",
-                    provider_name
+                    "[Guideline] Provider '{provider_name}' is missing a version constraint"
                 ));
             }
 
@@ -369,8 +351,7 @@ impl TerraformService {
 
             for resource_id in &checks.missing_lifecycle_protection {
                 suggestions.push(format!(
-                    "[Guideline] Critical resource '{}' is missing lifecycle.prevent_destroy",
-                    resource_id
+                    "[Guideline] Critical resource '{resource_id}' is missing lifecycle.prevent_destroy"
                 ));
             }
 
@@ -466,7 +447,7 @@ impl TerraformService {
         );
 
         if let Err(e) = self.security_manager.log_audit_entry(audit_entry) {
-            eprintln!("[WARN] Failed to log audit entry: {}", e);
+            eprintln!("[WARN] Failed to log audit entry: {e}");
         }
 
         if success {
@@ -554,7 +535,7 @@ impl TerraformService {
             Ok(content) => content,
             Err(e) => {
                 eprintln!("[ERROR] Failed to read file {}: {}", file_path.display(), e);
-                return Err(anyhow::anyhow!("Failed to read file: {}", e));
+                return Err(anyhow::anyhow!("Failed to read file: {e}"));
             }
         };
 
@@ -657,7 +638,7 @@ impl TerraformService {
                         .file_name()
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or_default();
-                    let new_prefix = format!("{}/{}", prefix, submodule_name);
+                    let new_prefix = format!("{prefix}/{submodule_name}");
                     Self::read_nested_modules(&path, &new_prefix, file_contents)?;
                 } else if path.is_file() && path.extension().is_some_and(|ext| ext == "tf") {
                     if let Some(filename) = path.file_name() {
@@ -802,7 +783,7 @@ impl TerraformService {
             if stderr.contains("No state file") || stderr.contains("no state") {
                 return super::state_analyzer::analyze_state("{}", resource_type, detect_drift);
             }
-            return Err(anyhow::anyhow!("Failed to get state: {}", stderr));
+            return Err(anyhow::anyhow!("Failed to get state: {stderr}"));
         }
 
         let state_json = String::from_utf8_lossy(&output.stdout);
@@ -842,10 +823,7 @@ impl TerraformService {
         name: &str,
         execute: bool,
     ) -> anyhow::Result<serde_json::Value> {
-        eprintln!(
-            "[DEBUG] Import {} {} as {} (execute={})",
-            resource_type, resource_id, name, execute
-        );
+        eprintln!("[DEBUG] Import {resource_type} {resource_id} as {name} (execute={execute})");
 
         if execute {
             let result = super::import_helper::execute_import(
@@ -874,12 +852,31 @@ impl TerraformService {
             self.project_directory.display()
         );
 
+        if check && diff {
+            anyhow::bail!("terraform fmt accepts either check=true or diff=true, not both");
+        }
+
         if check {
-            super::fmt::check_format(&self.terraform_path, &self.project_directory, file)
+            super::fmt::format_files(
+                &self.terraform_path,
+                &self.project_directory,
+                file,
+                super::fmt::FormatMode::Check,
+            )
         } else if diff {
-            super::fmt::format_with_diff(&self.terraform_path, &self.project_directory, file)
+            super::fmt::format_files(
+                &self.terraform_path,
+                &self.project_directory,
+                file,
+                super::fmt::FormatMode::Diff,
+            )
         } else {
-            super::fmt::format_files(&self.terraform_path, &self.project_directory, file)
+            super::fmt::format_files(
+                &self.terraform_path,
+                &self.project_directory,
+                file,
+                super::fmt::FormatMode::Write,
+            )
         }
     }
 
@@ -946,7 +943,12 @@ impl TerraformService {
             ));
         }
 
-        super::refresh::execute_refresh(&self.terraform_path, &self.project_directory, target)
+        super::refresh::refresh(
+            &self.terraform_path,
+            &self.project_directory,
+            target,
+            super::refresh::RefreshMode::Apply,
+        )
     }
 
     /// Get provider information
@@ -960,5 +962,23 @@ impl TerraformService {
         );
 
         super::providers::get_providers(&self.terraform_path, &self.project_directory, include_lock)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TerraformService;
+
+    #[test]
+    fn detects_missing_state_messages() {
+        assert!(TerraformService::is_missing_state(
+            "No state file was found"
+        ));
+        assert!(TerraformService::is_missing_state(
+            "Error: no state exists for this workspace"
+        ));
+        assert!(!TerraformService::is_missing_state(
+            "Error: failed to acquire state lock"
+        ));
     }
 }

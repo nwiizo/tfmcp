@@ -1,0 +1,190 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.nwiizo/tfmcp",
+  "title": "tfmcp",
+  "description": "Local-first Terraform MCP server with Registry lookup, Terraform CLI workflows, plan/state analysis, module health checks, and safety gates.",
+  "repository": {
+    "url": "https://github.com/nwiizo/tfmcp",
+    "source": "github"
+  },
+  "version": "0.2.1",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/nwiizo/tfmcp:0.2.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "TERRAFORM_DIR",
+          "description": "Terraform project directory to inspect and operate on.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "TFMCP_ALLOW_DANGEROUS_OPS",
+          "description": "Enable Terraform operations that can change infrastructure.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "TFMCP_ALLOW_AUTO_APPROVE",
+          "description": "Allow auto-approve for gated Terraform operations.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "ENABLE_TF_OPERATIONS",
+          "description": "Enable gated HCP Terraform / Terraform Enterprise write operations.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "TFE_ADDRESS",
+          "description": "HCP Terraform or Terraform Enterprise base URL.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "TFE_TOKEN",
+          "description": "HCP Terraform or Terraform Enterprise API token for read-only tools.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "TFE_SKIP_TLS_VERIFY",
+          "description": "Skip TLS verification for trusted private TFE installations.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "TFE_MAX_RESPONSE_BYTES",
+          "description": "Maximum HCP/TFE response bytes returned to MCP clients before truncation.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "TRANSPORT_MODE",
+          "description": "MCP transport mode: stdio or streamable-http.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "TRANSPORT_HOST",
+          "description": "Host address for streamable HTTP mode.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "TRANSPORT_PORT",
+          "description": "Port for streamable HTTP mode.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_ENDPOINT",
+          "description": "Streamable HTTP MCP endpoint path.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_HEALTH_ENDPOINT",
+          "description": "Health endpoint path for streamable HTTP mode.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_METRICS_ENDPOINT",
+          "description": "Metrics endpoint path for streamable HTTP mode.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_SESSION_MODE",
+          "description": "Streamable HTTP session mode: stateful or stateless.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_CORS_MODE",
+          "description": "CORS mode for streamable HTTP: strict, development, or disabled.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_ALLOWED_ORIGINS",
+          "description": "Comma-separated allowed browser origins. Defaults to loopback origins; MCP request Origin validation remains enabled in every CORS mode.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_ALLOWED_HOSTS",
+          "description": "Comma-separated HTTP Host or authority values accepted by Streamable HTTP. Defaults to rmcp loopback hosts when unset.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_HEARTBEAT_INTERVAL",
+          "description": "Streamable HTTP SSE keep-alive interval in seconds. Set to 0 to disable.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_ORGANIZATION_ALLOWLIST",
+          "description": "Comma-separated HCP/TFE organizations allowed for remote MCP requests.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_RATE_LIMIT_GLOBAL",
+          "description": "Maximum HTTP requests per minute across the server.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_RATE_LIMIT_SESSION",
+          "description": "Maximum HTTP requests per minute per MCP session.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_TLS_CERT_FILE",
+          "description": "PEM certificate file for HTTPS Streamable HTTP.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_TLS_KEY_FILE",
+          "description": "PEM private key file for HTTPS Streamable HTTP.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

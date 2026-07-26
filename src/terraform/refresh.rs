@@ -34,67 +34,67 @@ pub enum RefreshChangeType {
     Unchanged,
 }
 
-/// Execute terraform refresh (via apply -refresh-only)
-pub fn execute_refresh(
-    terraform_path: &Path,
-    project_dir: &Path,
-    target: Option<&str>,
-) -> anyhow::Result<RefreshResult> {
-    let mut cmd = Command::new(terraform_path);
-    cmd.arg("apply")
-        .arg("-refresh-only")
-        .arg("-auto-approve")
-        .arg("-json");
-
-    // If targeting a specific resource
-    if let Some(target_addr) = target {
-        cmd.arg(format!("-target={}", target_addr));
-    }
-
-    let output = cmd.current_dir(project_dir).output()?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    if !output.status.success() {
-        return Err(anyhow::anyhow!("Refresh failed: {}", stderr));
-    }
-
-    // Parse JSON output to extract changes
-    let changes = parse_refresh_output(&stdout);
-    let resources_updated = changes
-        .iter()
-        .filter(|c| c.change_type == RefreshChangeType::Updated)
-        .count() as i32;
-
-    let message = if resources_updated > 0 {
-        format!("Refreshed {} resources", resources_updated)
-    } else {
-        "No resources needed refreshing".to_string()
-    };
-
-    Ok(RefreshResult {
-        success: true,
-        resources_updated,
-        output: stdout.to_string(),
-        changes,
-        message,
-    })
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshMode {
+    Apply,
+    Preview,
 }
 
-/// Execute refresh with plan preview (no auto-approve)
-#[allow(dead_code)]
-pub fn preview_refresh(
+impl RefreshMode {
+    fn command(&self) -> &'static str {
+        match self {
+            Self::Apply => "apply",
+            Self::Preview => "plan",
+        }
+    }
+
+    fn error_prefix(&self) -> &'static str {
+        match self {
+            Self::Apply => "Refresh failed",
+            Self::Preview => "Refresh preview failed",
+        }
+    }
+
+    fn counted_change_type(&self) -> RefreshChangeType {
+        match self {
+            Self::Apply => RefreshChangeType::Updated,
+            Self::Preview => RefreshChangeType::Drifted,
+        }
+    }
+
+    fn message(&self, resources_updated: i32) -> String {
+        match self {
+            Self::Apply if resources_updated > 0 => {
+                format!("Refreshed {resources_updated} resources")
+            }
+            Self::Apply => "No resources needed refreshing".to_string(),
+            Self::Preview if resources_updated > 0 => {
+                format!("{resources_updated} resources have drifted and would be updated")
+            }
+            Self::Preview => "No drift detected - state is up to date".to_string(),
+        }
+    }
+}
+
+/// Run a refresh-only apply or a non-mutating refresh preview.
+pub fn refresh(
     terraform_path: &Path,
     project_dir: &Path,
     target: Option<&str>,
+    mode: RefreshMode,
 ) -> anyhow::Result<RefreshResult> {
     let mut cmd = Command::new(terraform_path);
-    cmd.arg("plan").arg("-refresh-only").arg("-json");
+    cmd.arg(mode.command()).arg("-refresh-only");
+
+    if matches!(mode, RefreshMode::Apply) {
+        cmd.arg("-auto-approve");
+    }
+
+    cmd.arg("-json");
 
     // If targeting a specific resource
     if let Some(target_addr) = target {
-        cmd.arg(format!("-target={}", target_addr));
+        cmd.arg(format!("-target={target_addr}"));
     }
 
     let output = cmd.current_dir(project_dir).output()?;
@@ -103,24 +103,17 @@ pub fn preview_refresh(
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     if !output.status.success() {
-        return Err(anyhow::anyhow!("Refresh preview failed: {}", stderr));
+        return Err(anyhow::anyhow!("{}: {}", mode.error_prefix(), stderr));
     }
 
     // Parse JSON output to extract changes
     let changes = parse_refresh_output(&stdout);
+    let counted_type = mode.counted_change_type();
     let resources_updated = changes
         .iter()
-        .filter(|c| c.change_type == RefreshChangeType::Drifted)
+        .filter(|c| c.change_type == counted_type)
         .count() as i32;
-
-    let message = if resources_updated > 0 {
-        format!(
-            "{} resources have drifted and would be updated",
-            resources_updated
-        )
-    } else {
-        "No drift detected - state is up to date".to_string()
-    };
+    let message = mode.message(resources_updated);
 
     Ok(RefreshResult {
         success: true,
@@ -196,7 +189,7 @@ pub fn get_stale_resources(
     project_dir: &Path,
 ) -> anyhow::Result<Vec<String>> {
     // Run a refresh-only plan to detect drift
-    let result = preview_refresh(terraform_path, project_dir, None)?;
+    let result = refresh(terraform_path, project_dir, None, RefreshMode::Preview)?;
 
     let stale: Vec<String> = result
         .changes

@@ -30,7 +30,7 @@ pub fn preview_import(
     resource_id: &str,
     name: &str,
 ) -> anyhow::Result<ImportPreview> {
-    let resource_address = format!("{}.{}", resource_type, name);
+    let resource_address = format!("{resource_type}.{name}");
 
     // Generate suggested configuration based on resource type
     let suggested_config = generate_suggested_config(resource_type, name);
@@ -53,7 +53,7 @@ pub fn execute_import(
     resource_id: &str,
     name: &str,
 ) -> anyhow::Result<ImportResult> {
-    let resource_address = format!("{}.{}", resource_type, name);
+    let resource_address = format!("{resource_type}.{name}");
 
     // Run terraform import
     let output = Command::new(terraform_path)
@@ -77,22 +77,15 @@ pub fn execute_import(
     } else {
         // Parse common error messages
         let message = if stderr.contains("Cannot import non-existent remote object") {
-            format!(
-                "Resource with ID '{}' does not exist in the cloud",
-                resource_id
-            )
+            format!("Resource with ID '{resource_id}' does not exist in the cloud")
         } else if stderr.contains("Resource already managed by Terraform") {
-            format!(
-                "Resource '{}' is already managed by Terraform",
-                resource_address
-            )
+            format!("Resource '{resource_address}' is already managed by Terraform")
         } else if stderr.contains("configuration for") && stderr.contains("is not present") {
             format!(
-                "No configuration found for '{}'. Add a resource block before importing.",
-                resource_address
+                "No configuration found for '{resource_address}'. Add a resource block before importing."
             )
         } else {
-            format!("Import failed: {}", stderr)
+            format!("Import failed: {stderr}")
         };
 
         Ok(ImportResult {
@@ -111,63 +104,58 @@ fn generate_suggested_config(resource_type: &str, name: &str) -> String {
     match resource_type {
         // AWS resources
         "aws_instance" => format!(
-            r#"resource "{}" "{}" {{
+            r#"resource "{resource_type}" "{name}" {{
   # Required attributes after import:
   ami           = "ami-xxxxxxxx"  # Update with actual AMI ID
   instance_type = "t3.micro"      # Update with actual instance type
 
   # Optional: Add tags, VPC settings, etc.
   tags = {{
-    Name = "{}"
+    Name = "{name}"
   }}
-}}"#,
-            resource_type, name, name
+}}"#
         ),
         "aws_s3_bucket" => format!(
-            r#"resource "{}" "{}" {{
+            r#"resource "{resource_type}" "{name}" {{
   # The bucket name will be imported from the resource ID
   # Add any additional configuration as needed
 
   tags = {{
-    Name = "{}"
+    Name = "{name}"
   }}
-}}"#,
-            resource_type, name, name
+}}"#
         ),
         "aws_security_group" => format!(
-            r#"resource "{}" "{}" {{
-  name        = "{}"
+            r#"resource "{resource_type}" "{name}" {{
+  name        = "{name}"
   description = "Imported security group"
 
   # Ingress and egress rules will need to be added manually
   # after running 'terraform plan' to see the current state
-}}"#,
-            resource_type, name, name
+}}"#
         ),
         "aws_vpc" => format!(
-            r#"resource "{}" "{}" {{
+            r#"resource "{resource_type}" "{name}" {{
   cidr_block = "10.0.0.0/16"  # Update with actual CIDR
 
   tags = {{
-    Name = "{}"
+    Name = "{name}"
   }}
-}}"#,
-            resource_type, name, name
+}}"#
         ),
         "aws_subnet" => format!(
-            r#"resource "{}" "{}" {{
+            r#"resource "{resource_type}" "{name}" {{
   vpc_id     = aws_vpc.main.id  # Update with actual VPC reference
   cidr_block = "10.0.1.0/24"    # Update with actual CIDR
 
   tags = {{
-    Name = "{}"
+    Name = "{name}"
   }}
-}}"#,
-            resource_type, name, name
+}}"#
         ),
         "aws_db_instance" => format!(
-            r#"resource "{}" "{}" {{
-  identifier        = "{}"
+            r#"resource "{resource_type}" "{name}" {{
+  identifier        = "{name}"
   instance_class    = "db.t3.micro"  # Update with actual instance class
   engine            = "mysql"         # Update with actual engine
   allocated_storage = 20              # Update with actual storage
@@ -177,14 +165,13 @@ fn generate_suggested_config(resource_type: &str, name: &str) -> String {
   # password = "..."
 
   skip_final_snapshot = true  # Set to false in production
-}}"#,
-            resource_type, name, name
+}}"#
         ),
 
         // Google Cloud resources
         "google_compute_instance" => format!(
-            r#"resource "{}" "{}" {{
-  name         = "{}"
+            r#"resource "{resource_type}" "{name}" {{
+  name         = "{name}"
   machine_type = "e2-medium"  # Update with actual machine type
   zone         = "us-central1-a"
 
@@ -197,52 +184,47 @@ fn generate_suggested_config(resource_type: &str, name: &str) -> String {
   network_interface {{
     network = "default"
   }}
-}}"#,
-            resource_type, name, name
+}}"#
         ),
         "google_storage_bucket" => format!(
-            r#"resource "{}" "{}" {{
-  name     = "{}"
+            r#"resource "{resource_type}" "{name}" {{
+  name     = "{name}"
   location = "US"  # Update with actual location
 
   force_destroy = false
-}}"#,
-            resource_type, name, name
+}}"#
         ),
 
         // Azure resources
         "azurerm_virtual_machine"
         | "azurerm_linux_virtual_machine"
         | "azurerm_windows_virtual_machine" => format!(
-            r#"resource "{}" "{}" {{
-  name                = "{}"
+            r#"resource "{resource_type}" "{name}" {{
+  name                = "{name}"
   resource_group_name = "my-resource-group"  # Update
   location            = "East US"             # Update
   size                = "Standard_B1s"        # Update
 
   # Additional required attributes depend on the VM type
-}}"#,
-            resource_type, name, name
+}}"#
         ),
         "azurerm_storage_account" => format!(
-            r#"resource "{}" "{}" {{
-  name                     = "{}"
+            r#"resource "{resource_type}" "{name}" {{
+  name                     = "{name}"
   resource_group_name      = "my-resource-group"  # Update
   location                 = "East US"             # Update
   account_tier             = "Standard"
   account_replication_type = "LRS"
-}}"#,
-            resource_type, name, name
+}}"#
         ),
 
         // Generic template for unknown resource types
         _ => format!(
-            r#"resource "{}" "{}" {{
+            r#"resource "{resource_type}" "{name}" {{
   # Add required attributes for this resource type
   # Run 'terraform plan' after import to see the current state
   # and identify any required attributes that are missing
-}}"#,
-            resource_type, name
+}}"#
         ),
     }
 }

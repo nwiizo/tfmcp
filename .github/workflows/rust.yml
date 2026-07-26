@@ -16,6 +16,21 @@ env:
   RUSTDOCFLAGS: "-Dwarnings"
 
 jobs:
+  msrv:
+    name: Rust 1.88 MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install minimum supported Rust
+        uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check minimum supported Rust
+        run: cargo check --locked --all-targets --all-features
+
   check:
     name: Check
     runs-on: ubuntu-latest
@@ -33,7 +48,7 @@ jobs:
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.5.7"
+          terraform_version: "1.15.8"
           terraform_wrapper: false
 
       - name: Check formatting
@@ -47,6 +62,27 @@ jobs:
 
       - name: Build
         run: cargo build --locked --all-features --verbose
+
+      - name: Install cargo-coupling
+        run: cargo install cargo-coupling --version 0.3.7 --locked
+
+      - name: Install similarity-rs
+        run: cargo install similarity-rs --version 0.5.0 --locked
+
+      - name: Check module coupling
+        run: cargo coupling --check --min-grade B --max-critical 0 --max-circular 0 --fail-on high --max-deps 40
+
+      - name: Check duplicate Rust functions
+        run: similarity-rs src --skip-test --threshold 0.90 --min-lines 8 --fail-on-duplicates
+
+      - name: Validate MCP Registry metadata
+        run: jq . server.json
+
+      - name: Package dry run
+        run: cargo package --locked --allow-dirty
+
+      - name: Publish dry run
+        run: cargo publish --dry-run --locked --allow-dirty
 
   test-platform:
     name: Test on ${{ matrix.os }}
@@ -69,35 +105,33 @@ jobs:
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.5.7"
+          terraform_version: "1.15.8"
           terraform_wrapper: false
 
       - name: Test
-        run: cargo test
+        run: cargo test --locked --all-features
 
   security:
     name: Security audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
       - name: Run security audit
-        run: |
-          # TODO: Re-enable when cargo-audit supports stable Rust again
-          # Current issue: cvss v2.1.0 requires edition2024 (Rust 1.85+)
-          echo "Security audit temporarily disabled due to cargo-audit requiring Rust 1.85+"
-          echo "Manual security review required until toolchain compatibility is resolved"
-        continue-on-error: true
+        run: cargo audit
 
   coverage:
     name: Code coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -117,31 +151,51 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  release:
-    name: Release
+  container:
+    name: Publish OCI image
     runs-on: ubuntu-latest
-    needs: [check, test-platform, security]
-    # Disabled: Manual release via `gh release create` and `cargo publish` is preferred
-    # Re-enable by removing `false &&` when automated release is needed
-    if: false && startsWith(github.ref, 'refs/tags/v')
+    needs: [msrv, check, test-platform, security]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - name: Build release
-        run: cargo build --release --locked
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Create release
-        uses: softprops/action-gh-release@v1
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          files: |
-            target/release/tfmcp
-            LICENSE
-            README.md
-          draft: false
-          prerelease: false 
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract OCI metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/nwiizo/tfmcp
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and publish OCI image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            TFMCP_VERSION=${{ steps.meta.outputs.version }}
+            TFMCP_REVISION=${{ github.sha }}
+
+      - name: Verify versioned image
+        run: docker buildx imagetools inspect "ghcr.io/nwiizo/tfmcp:${GITHUB_REF_NAME#v}"

@@ -23,8 +23,7 @@ impl std::str::FromStr for TaintAction {
             "taint" => Ok(TaintAction::Taint),
             "untaint" => Ok(TaintAction::Untaint),
             _ => Err(anyhow::anyhow!(
-                "Unknown taint action: {}. Valid actions: taint, untaint",
-                s
+                "Unknown taint action: {s}. Valid actions: taint, untaint"
             )),
         }
     }
@@ -67,10 +66,10 @@ pub fn execute_taint(
     if output.status.success() {
         let message = match action {
             TaintAction::Taint => {
-                format!("Resource '{}' has been marked as tainted", address)
+                format!("Resource '{address}' has been marked as tainted")
             }
             TaintAction::Untaint => {
-                format!("Resource '{}' has been unmarked as tainted", address)
+                format!("Resource '{address}' has been unmarked as tainted")
             }
         };
 
@@ -84,11 +83,11 @@ pub fn execute_taint(
     } else {
         // Parse common error messages
         let message = if stderr.contains("No such resource instance") {
-            format!("Resource '{}' not found in state", address)
+            format!("Resource '{address}' not found in state")
         } else if stderr.contains("not currently tainted") {
-            format!("Resource '{}' is not currently tainted", address)
+            format!("Resource '{address}' is not currently tainted")
         } else if stderr.contains("already tainted") {
-            format!("Resource '{}' is already tainted", address)
+            format!("Resource '{address}' is already tainted")
         } else if stdout.contains("Terraform has been successfully initialized") {
             // Sometimes terraform needs init first
             "Terraform needs to be initialized. Run 'terraform init' first.".to_string()
@@ -144,7 +143,7 @@ fn check_terraform_version_for_deprecation(terraform_path: &Path) -> Option<Stri
 /// Get the recommended replacement command for Terraform 1.5+
 #[allow(dead_code)]
 pub fn get_replacement_command(address: &str) -> String {
-    format!("terraform apply -replace='{}'", address)
+    format!("terraform apply -replace='{address}'")
 }
 
 /// Alternative: Plan with replace
@@ -156,7 +155,7 @@ pub fn plan_with_replace(
 ) -> anyhow::Result<String> {
     let output = Command::new(terraform_path)
         .arg("plan")
-        .arg(format!("-replace={}", address))
+        .arg(format!("-replace={address}"))
         .current_dir(project_dir)
         .output()?;
 

@@ -87,7 +87,7 @@ mod compilation_tests {
         let error = RegistryError::HttpError("test".to_string());
 
         // Test Debug implementation
-        let _debug_str = format!("{:?}", error);
+        let _debug_str = format!("{error:?}");
 
         // Test Clone implementation
         let _cloned = error.clone();

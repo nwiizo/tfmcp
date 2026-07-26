@@ -61,7 +61,7 @@ async fn test_mcp_initialize_response() -> Result<()> {
             "protocolVersion": "2024-11-05",
             "serverInfo": {
                 "name": "tfmcp",
-                "version": "0.1.0"
+                "version": env!("CARGO_PKG_VERSION")
             }
         });
 
@@ -92,7 +92,7 @@ async fn test_mcp_initialize_response() -> Result<()> {
                     "protocolVersion": "2024-11-05",
                     "serverInfo": {
                         "name": "tfmcp",
-                        "version": "0.1.0"
+                        "version": env!("CARGO_PKG_VERSION")
                     }
                 });
                 assert!(expected_capabilities.is_object());
@@ -302,7 +302,7 @@ async fn test_rmcp_server_initialization_flow() -> Result<()> {
             },
             "serverInfo": {
                 "name": "tfmcp",
-                "version": "0.1.7"
+                "version": env!("CARGO_PKG_VERSION")
             }
         });
         assert!(init_result["serverInfo"]["name"].as_str() == Some("tfmcp"));
@@ -327,7 +327,7 @@ async fn test_rmcp_server_initialization_flow() -> Result<()> {
             assert!(init_result.capabilities.resources.is_some());
 
             // Test 2: Verify tools are registered (via tool_router)
-            // The server should have 21 tools registered
+            // The server should expose the v0.2.1 tool surface.
             // We can't easily test the full list without a mock transport,
             // but we verify the server structure is correct
 
@@ -335,10 +335,7 @@ async fn test_rmcp_server_initialization_flow() -> Result<()> {
         }
         Err(e) => {
             // If Terraform is not available, just verify JSON structures
-            println!(
-                "Terraform not available ({}), testing JSON structures only",
-                e
-            );
+            println!("Terraform not available ({e}), testing JSON structures only");
 
             let tools_response = serde_json::json!({
                 "tools": [
@@ -371,23 +368,72 @@ async fn test_rmcp_server_tool_count() -> Result<()> {
             "validate_terraform_detailed",
             "get_terraform_state",
             "analyze_terraform",
+            "inspect_terraform_project",
+            "detect_terraform_entrypoints",
             "set_terraform_directory",
             "get_security_status",
             "analyze_module_health",
             "get_resource_dependency_graph",
             "suggest_module_refactoring",
             "search_terraform_providers",
+            "search_providers",
             "get_provider_info",
+            "get_provider_details",
             "get_provider_docs",
             "search_terraform_modules",
+            "search_modules",
             "get_module_details",
             "get_latest_module_version",
             "get_latest_provider_version",
+            "analyze_plan",
+            "analyze_state",
+            "terraform_workspace",
+            "terraform_import",
+            "terraform_fmt",
+            "terraform_graph",
+            "terraform_output",
+            "terraform_taint",
+            "terraform_refresh",
+            "terraform_providers",
+            "check_provider_lockfile",
+            "get_token_permissions",
+            "list_terraform_orgs",
+            "list_terraform_projects",
+            "list_workspaces",
+            "get_workspace_details",
+            "list_runs",
+            "get_run_details",
+            "get_plan_details",
+            "get_plan_logs",
+            "get_plan_json_output",
+            "get_apply_details",
+            "get_apply_logs",
+            "search_policies",
+            "get_policy_details",
+            "get_provider_capabilities",
+            "search_private_modules",
+            "get_private_module_details",
+            "search_private_providers",
+            "get_private_provider_details",
+            "review_terraform_plan",
+            "summarize_plan_for_pr",
+            "run_terraform_quality_checks",
+            "inspect_state_safety",
+            "detect_drift_candidates",
+            "prepare_terraform_change",
+            "create_workspace",
+            "update_workspace",
+            "delete_workspace_safely",
+            "create_run",
+            "action_run",
+            "list_workspace_variables",
+            "create_workspace_variable",
+            "update_workspace_variable",
         ];
         assert_eq!(
             expected_tools.len(),
-            21,
-            "Expected 21 tools to be registered"
+            70,
+            "Expected 70 tools to be registered"
         );
         return Ok(());
     }
@@ -398,7 +444,7 @@ async fn test_rmcp_server_tool_count() -> Result<()> {
     if let Ok(tfmcp) = TfMcp::new(None, Some(temp_dir_str)) {
         let _server = TfMcpServer::new(tfmcp, tfmcp::mcp::server::ToolFilter::all());
         // Server created successfully - tools are registered via #[tool] macros
-        println!("RMCP server with 21 tools created successfully");
+        println!("RMCP server with 70 tools created successfully");
     }
 
     Ok(())
@@ -413,7 +459,7 @@ fn test_rmcp_serve_waiting_pattern() {
     // 2. service.waiting().await? -> keeps the server alive
 
     // We verify this by checking that the source code contains the correct pattern
-    let server_source = include_str!("../src/mcp/server.rs");
+    let server_source = include_str!("../src/mcp/server/mod.rs");
 
     // The serve_stdio function must call .waiting() after .serve()
     assert!(
@@ -621,7 +667,8 @@ fn test_tool_input_schema_generation() {
 /// Test that server source code follows best practices
 #[test]
 fn test_server_code_quality() {
-    let server_source = include_str!("../src/mcp/server.rs");
+    let server_source = include_str!("../src/mcp/server/mod.rs");
+    let protocol_source = include_str!("../src/mcp/server/protocol.rs");
 
     // Verify Arc<RwLock<TfMcp>> pattern is used for interior mutability
     assert!(
@@ -650,8 +697,8 @@ fn test_server_code_quality() {
 
     // Verify ServerHandler is implemented
     assert!(
-        server_source.contains("impl ServerHandler for TfMcpServer"),
-        "Server should implement ServerHandler trait"
+        protocol_source.contains("impl ServerHandler for TfMcpServer"),
+        "Protocol module should implement ServerHandler trait"
     );
 
     println!("Server code quality tests passed");

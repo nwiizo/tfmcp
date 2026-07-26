@@ -40,7 +40,7 @@ pub fn contract_tilde(path: &Path) -> String {
             } else {
                 // Convert to forward slashes for consistency across platforms
                 let relative_str = relative.to_string_lossy().replace('\\', "/");
-                return format!("~/{}", relative_str);
+                return format!("~/{relative_str}");
             }
         }
 

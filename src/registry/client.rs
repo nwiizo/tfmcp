@@ -1,468 +1,405 @@
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use reqwest::{Client, RequestBuilder, StatusCode};
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::collections::HashMap;
-use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-#[derive(Error, Debug, Clone)]
-pub enum RegistryError {
-    #[error("HTTP request failed: {0}")]
-    HttpError(String),
-
-    #[error("JSON parsing failed: {0}")]
-    JsonError(String),
-
-    #[error(
-        "Provider '{provider}' not found in namespace '{namespace}'. Try using a different namespace or let the system auto-fallback to common namespaces (hashicorp, terraform-providers, community)."
-    )]
-    ProviderNotFound { provider: String, namespace: String },
-
-    #[error(
-        "Module '{module}' not found for provider '{provider}' in namespace '{namespace}'. Check the module name spelling or search for available modules."
-    )]
-    ModuleNotFound {
-        module: String,
-        provider: String,
-        namespace: String,
-    },
-
-    #[error(
-        "Service '{service}' not found for provider '{provider}' in namespace '{namespace}'. Check the service name spelling or browse available services first."
-    )]
-    #[allow(dead_code)]
-    ServiceNotFound {
-        service: String,
-        provider: String,
-        namespace: String,
-    },
-
-    #[error(
-        "Documentation not found for '{doc_id}'. The documentation may have been moved or the ID may be incorrect."
-    )]
-    DocumentationNotFound { doc_id: String },
-
-    #[error(
-        "Invalid response format from Terraform Registry API. This may indicate a temporary service issue or API changes."
-    )]
-    InvalidResponse,
-
-    #[error(
-        "Rate limit exceeded. Please wait before making additional requests. The Terraform Registry has usage limits to ensure fair access."
-    )]
-    RateLimited,
-
-    #[error(
-        "Search returned no results for query '{query}'. Try using broader search terms or check spelling."
-    )]
-    NoSearchResults { query: String },
-
-    #[error(
-        "Provider '{provider}' exists but has no available versions in namespace '{namespace}'. This may indicate a deprecated or invalid provider."
-    )]
-    NoVersionsAvailable { provider: String, namespace: String },
-
-    #[error(
-        "Module '{module}' exists but has no available versions. This may indicate a deprecated or invalid module."
-    )]
-    NoModuleVersionsAvailable { module: String },
-}
-
-impl From<reqwest::Error> for RegistryError {
-    fn from(error: reqwest::Error) -> Self {
-        RegistryError::HttpError(error.to_string())
-    }
-}
-
-impl From<serde_json::Error> for RegistryError {
-    fn from(error: serde_json::Error) -> Self {
-        RegistryError::JsonError(error.to_string())
-    }
-}
-
-// Flexible provider info structure that can handle multiple API versions
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ProviderInfo {
-    pub name: String,
-    pub namespace: String,
-    #[serde(default)]
-    pub version: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub downloads: u64,
-    #[serde(default)]
-    pub published_at: String,
-    #[serde(default)]
-    pub id: String,
-    // Additional fields for API compatibility
-    #[serde(default)]
-    pub source: Option<String>,
-    #[serde(default)]
-    pub tag: Option<String>,
-    #[serde(default)]
-    pub logo_url: Option<String>,
-    #[serde(default)]
-    pub owner: Option<String>,
-    #[serde(default)]
-    pub tier: Option<String>,
-    #[serde(default)]
-    pub verified: Option<bool>,
-    #[serde(default)]
-    pub trusted: Option<bool>,
-    // Catch unknown fields to avoid parsing failures
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DocIdResult {
-    pub id: String,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub category: String,
-    #[serde(default)]
-    pub slug: Option<String>,
-    #[serde(default)]
-    pub path: Option<String>,
-    #[serde(default)]
-    pub subcategory: Option<String>,
-    // Catch unknown fields
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProviderVersions {
-    /// Registry returns versions as either `["1.0"]` or `[{"version":"1.0",...}]`
-    #[serde(default, deserialize_with = "deserialize_versions")]
-    pub versions: Vec<String>,
-    // Handle alternative response formats
-    #[serde(default)]
-    pub data: Option<Vec<VersionInfo>>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-/// Deserializes versions from either a string array or an array of objects
-/// with a `version` field. The Terraform Registry API returns the latter.
-fn deserialize_versions<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let raw: Vec<Value> = Vec::deserialize(deserializer).unwrap_or_default();
-    Ok(raw
-        .into_iter()
-        .filter_map(|v| match v {
-            Value::String(s) => Some(s),
-            Value::Object(ref map) => map
-                .get("version")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            _ => None,
-        })
-        .collect())
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VersionInfo {
-    #[serde(default)]
-    pub version: String,
-    #[serde(default)]
-    pub published_at: Option<String>,
-    #[serde(default)]
-    pub protocols: Option<Vec<String>>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegistrySearchResponse {
-    #[serde(default)]
-    pub providers: Vec<ProviderInfo>,
-    #[serde(default)]
-    pub meta: HashMap<String, Value>,
-    // Handle alternative response formats
-    #[serde(default)]
-    pub data: Option<Vec<ProviderInfo>>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProviderDocsResponse {
-    #[serde(default)]
-    pub data: Vec<DocIdResult>,
-    // Handle alternative response formats
-    #[serde(default)]
-    pub docs: Option<Vec<DocIdResult>>,
-    #[serde(default)]
-    pub documentation: Option<Vec<DocIdResult>>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-// Module-related structures
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleInfo {
-    pub id: String,
-    #[serde(default)]
-    pub namespace: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub provider: String,
-    #[serde(default)]
-    pub version: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub source: String,
-    #[serde(default)]
-    pub published_at: String,
-    #[serde(default)]
-    pub downloads: u64,
-    #[serde(default)]
-    pub verified: bool,
-    #[serde(default)]
-    pub owner: String,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleDetails {
-    pub id: String,
-    #[serde(default)]
-    pub namespace: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub provider: String,
-    #[serde(default)]
-    pub version: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub source: String,
-    #[serde(default)]
-    pub published_at: String,
-    #[serde(default)]
-    pub downloads: u64,
-    #[serde(default)]
-    pub verified: bool,
-    #[serde(default)]
-    pub root: Option<ModuleRoot>,
-    #[serde(default)]
-    pub submodules: Vec<ModuleSubmodule>,
-    #[serde(default)]
-    pub versions: Vec<String>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleRoot {
-    #[serde(default)]
-    pub path: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub readme: String,
-    #[serde(default)]
-    pub empty: bool,
-    #[serde(default)]
-    pub inputs: Vec<ModuleInput>,
-    #[serde(default)]
-    pub outputs: Vec<ModuleOutput>,
-    #[serde(default)]
-    pub dependencies: Vec<ModuleDependency>,
-    #[serde(default)]
-    pub provider_dependencies: Vec<ModuleProviderDependency>,
-    #[serde(default)]
-    pub resources: Vec<ModuleResource>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleSubmodule {
-    #[serde(default)]
-    pub path: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub readme: String,
-    #[serde(default)]
-    pub empty: bool,
-    #[serde(default)]
-    pub inputs: Vec<ModuleInput>,
-    #[serde(default)]
-    pub outputs: Vec<ModuleOutput>,
-    #[serde(default)]
-    pub dependencies: Vec<ModuleDependency>,
-    #[serde(default)]
-    pub resources: Vec<ModuleResource>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleInput {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default, rename = "type")]
-    pub input_type: String,
-    #[serde(default)]
-    pub default: Option<Value>,
-    #[serde(default)]
-    pub required: bool,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleOutput {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleDependency {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub source: String,
-    #[serde(default)]
-    pub version: String,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleProviderDependency {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub namespace: String,
-    #[serde(default)]
-    pub source: String,
-    #[serde(default)]
-    pub version: String,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleResource {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default, rename = "type")]
-    pub resource_type: String,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModuleSearchResponse {
-    #[serde(default)]
-    pub modules: Vec<ModuleInfo>,
-    #[serde(default)]
-    pub meta: ModuleSearchMeta,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleSearchMeta {
-    #[serde(default)]
-    pub limit: u32,
-    #[serde(default)]
-    pub current_offset: u32,
-    #[serde(default)]
-    pub next_offset: Option<u32>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModuleVersionsResponse {
-    #[serde(default)]
-    pub modules: Vec<ModuleVersionInfo>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleVersionInfo {
-    #[serde(default)]
-    pub source: String,
-    #[serde(default)]
-    pub versions: Vec<ModuleVersionDetail>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleVersionDetail {
-    #[serde(default)]
-    pub version: String,
-    #[serde(default)]
-    pub root: Option<ModuleVersionRoot>,
-    #[serde(default)]
-    pub submodules: Vec<ModuleVersionSubmodule>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleVersionRoot {
-    #[serde(default)]
-    pub providers: Vec<ModuleVersionProvider>,
-    #[serde(default)]
-    pub dependencies: Vec<Value>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleVersionSubmodule {
-    #[serde(default)]
-    pub path: String,
-    #[serde(default)]
-    pub providers: Vec<ModuleVersionProvider>,
-    #[serde(default)]
-    pub dependencies: Vec<Value>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleVersionProvider {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub namespace: String,
-    #[serde(default)]
-    pub source: String,
-    #[serde(default)]
-    pub version: String,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
+pub use crate::registry::types::*;
 
 pub struct RegistryClient {
     client: Client,
     base_url: String,
+}
+
+fn value_str(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn value_str_or(value: &Value, key: &str, fallback: &str) -> String {
+    value
+        .get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or(fallback)
+        .to_string()
+}
+
+fn value_opt_str(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+fn provider_info_from_value(provider: &Value) -> Option<ProviderInfo> {
+    let name = provider.get("name").and_then(|v| v.as_str())?;
+    Some(ProviderInfo {
+        name: name.to_string(),
+        namespace: value_str(provider, "namespace"),
+        description: value_str(provider, "description"),
+        downloads: provider
+            .get("downloads")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        version: value_str(provider, "version"),
+        ..Default::default()
+    })
+}
+
+fn doc_id_from_value(doc: &Value) -> Option<DocIdResult> {
+    let doc_result = DocIdResult {
+        id: value_str(doc, "id"),
+        title: value_str(doc, "title"),
+        description: value_str(doc, "description"),
+        category: value_str(doc, "category"),
+        slug: value_opt_str(doc, "slug"),
+        path: value_opt_str(doc, "path"),
+        subcategory: value_opt_str(doc, "subcategory"),
+        extra: HashMap::new(),
+    };
+
+    (!doc_result.id.is_empty() || !doc_result.title.is_empty()).then_some(doc_result)
+}
+
+fn module_info_from_value(module: &Value) -> Option<ModuleInfo> {
+    let id = value_str(module, "id");
+    (!id.is_empty()).then(|| ModuleInfo {
+        id,
+        namespace: value_str(module, "namespace"),
+        name: value_str(module, "name"),
+        provider: value_str(module, "provider"),
+        version: value_str(module, "version"),
+        description: value_str(module, "description"),
+        source: value_str(module, "source"),
+        published_at: value_str(module, "published_at"),
+        downloads: module
+            .get("downloads")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        verified: module
+            .get("verified")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        owner: value_str(module, "owner"),
+        extra: HashMap::new(),
+    })
+}
+
+fn module_versions_from_response(response: ModuleVersionsResponse) -> Vec<String> {
+    response
+        .modules
+        .into_iter()
+        .flat_map(|module| module.versions.into_iter().map(|version| version.version))
+        .filter(|version| !version.is_empty())
+        .collect()
+}
+
+fn module_versions_from_fallback_json(json_value: &Value) -> Option<Vec<String>> {
+    let versions: Vec<String> = json_value
+        .get("modules")?
+        .as_array()?
+        .iter()
+        .filter_map(|module| module.get("versions").and_then(|v| v.as_array()))
+        .flatten()
+        .filter_map(|version| version.get("version").and_then(|v| v.as_str()))
+        .map(|version| version.to_string())
+        .collect();
+
+    (!versions.is_empty()).then_some(versions)
+}
+
+fn parse_provider_info_json(
+    json_value: Value,
+    provider_name: &str,
+    namespace: &str,
+) -> ProviderInfo {
+    if let Ok(provider_info) = serde_json::from_value::<ProviderInfo>(json_value.clone()) {
+        info!(
+            "Successfully retrieved provider info for {}/{}",
+            namespace, provider_name
+        );
+        return provider_info;
+    }
+
+    provider_info_fallback(json_value, provider_name, namespace)
+}
+
+fn provider_info_fallback(json_value: Value, provider_name: &str, namespace: &str) -> ProviderInfo {
+    error!(
+        "Parsed JSON was: {}",
+        serde_json::to_string_pretty(&json_value).unwrap_or_else(|_| "Invalid JSON".to_string())
+    );
+    warn!("Using fallback provider info parsing due to deserialization error");
+    ProviderInfo {
+        name: value_str_or(&json_value, "name", provider_name),
+        namespace: value_str_or(&json_value, "namespace", namespace),
+        description: value_str(&json_value, "description"),
+        downloads: json_value
+            .get("downloads")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        ..Default::default()
+    }
+}
+
+fn parse_latest_provider_version_json(
+    json_value: Value,
+    provider_name: &str,
+    namespace: &str,
+) -> Result<String, RegistryError> {
+    match serde_json::from_value::<ProviderVersions>(json_value.clone()) {
+        Ok(mut versions) => {
+            if versions.versions.is_empty() {
+                if let Some(data) = versions.data.as_ref() {
+                    versions.versions = data
+                        .iter()
+                        .map(|v| v.version.clone())
+                        .filter(|v| !v.is_empty())
+                        .collect();
+                }
+            }
+
+            provider_latest_version(versions.versions, provider_name, namespace)
+        }
+        Err(e) => {
+            error!("Failed to deserialize ProviderVersions: {}", e);
+            if let Some(first_version) = json_value
+                .get("versions")
+                .and_then(|v| v.as_array())
+                .and_then(|versions| versions.first())
+                .and_then(|v| v.as_str())
+            {
+                warn!("Using fallback version parsing");
+                return Ok(first_version.to_string());
+            }
+
+            Err(RegistryError::JsonError(format!(
+                "Failed to parse versions: {e}"
+            )))
+        }
+    }
+}
+
+fn provider_latest_version(
+    versions: Vec<String>,
+    provider_name: &str,
+    namespace: &str,
+) -> Result<String, RegistryError> {
+    if versions.is_empty() {
+        warn!(
+            "No versions available for provider {}/{}",
+            namespace, provider_name
+        );
+        return Err(RegistryError::NoVersionsAvailable {
+            provider: provider_name.to_string(),
+            namespace: namespace.to_string(),
+        });
+    }
+
+    let latest_version = versions
+        .last()
+        .cloned()
+        .ok_or(RegistryError::InvalidResponse)?;
+    info!(
+        "Found latest version {} for provider {}/{}",
+        latest_version, namespace, provider_name
+    );
+    Ok(latest_version)
+}
+
+enum RegistryNotFound<'a> {
+    Provider {
+        provider: &'a str,
+        namespace: &'a str,
+        label: &'static str,
+    },
+    Module {
+        module: &'a str,
+        provider: &'a str,
+        namespace: &'a str,
+        label: &'static str,
+    },
+}
+
+impl RegistryNotFound<'_> {
+    fn warn_message(&self) -> String {
+        match self {
+            Self::Provider {
+                provider,
+                namespace,
+                label,
+            } => {
+                format!("{label} not found: {namespace}/{provider}")
+            }
+            Self::Module {
+                module,
+                provider,
+                namespace,
+                label,
+            } => {
+                format!("{label} not found: {namespace}/{module}/{provider}")
+            }
+        }
+    }
+
+    fn error(&self) -> RegistryError {
+        match self {
+            Self::Provider {
+                provider,
+                namespace,
+                ..
+            } => RegistryError::ProviderNotFound {
+                provider: (*provider).to_string(),
+                namespace: (*namespace).to_string(),
+            },
+            Self::Module {
+                module,
+                provider,
+                namespace,
+                ..
+            } => RegistryError::ModuleNotFound {
+                module: (*module).to_string(),
+                provider: (*provider).to_string(),
+                namespace: (*namespace).to_string(),
+            },
+        }
+    }
+}
+
+struct JsonRequestContext<'a> {
+    label: &'static str,
+    preview_chars: usize,
+    not_found: Option<RegistryNotFound<'a>>,
+}
+
+enum RegistrySearchKind {
+    Provider,
+    Module,
+}
+
+impl RegistrySearchKind {
+    fn url(&self, base_url: &str) -> String {
+        match self {
+            Self::Provider => format!("{base_url}/v1/providers"),
+            Self::Module => format!("{base_url}/v1/modules/search"),
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Provider => "provider search",
+            Self::Module => "module search",
+        }
+    }
+
+    fn params<'a>(&self, query: &'a str) -> Vec<(&'static str, &'a str)> {
+        match self {
+            Self::Provider => vec![("q", query)],
+            Self::Module => vec![("q", query), ("limit", "20")],
+        }
+    }
+}
+
+enum ProviderEndpoint {
+    Info,
+    Versions,
+}
+
+impl ProviderEndpoint {
+    fn url(&self, base_url: &str, namespace: &str, provider_name: &str) -> String {
+        match self {
+            Self::Info => format!("{base_url}/v1/providers/{namespace}/{provider_name}"),
+            Self::Versions => {
+                format!("{base_url}/v1/providers/{namespace}/{provider_name}/versions")
+            }
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Info => "provider info",
+            Self::Versions => "provider versions",
+        }
+    }
+
+    fn preview_chars(&self) -> usize {
+        match self {
+            Self::Info => 1000,
+            Self::Versions => 500,
+        }
+    }
+
+    fn not_found_label(&self) -> &'static str {
+        match self {
+            Self::Info => "Provider",
+            Self::Versions => "Provider versions",
+        }
+    }
+}
+
+trait RegistrySearchItem: Sized {
+    type Response: DeserializeOwned;
+
+    fn items(response: Self::Response) -> Vec<Self>;
+    fn fallback(client: &RegistryClient, json_value: &Value) -> Vec<Self>;
+    fn parse_error_label() -> &'static str;
+    fn fallback_warning() -> &'static str;
+}
+
+impl RegistrySearchItem for ProviderInfo {
+    type Response = RegistrySearchResponse;
+
+    fn items(mut response: Self::Response) -> Vec<Self> {
+        if response.providers.is_empty() {
+            if let Some(data) = response.data.take() {
+                response.providers = data;
+            }
+        }
+        response.providers
+    }
+
+    fn fallback(client: &RegistryClient, json_value: &Value) -> Vec<Self> {
+        json_value
+            .get("providers")
+            .and_then(|v| v.as_array())
+            .map(|providers| client.extract_providers_from_array(providers))
+            .unwrap_or_default()
+    }
+
+    fn parse_error_label() -> &'static str {
+        "search response"
+    }
+
+    fn fallback_warning() -> &'static str {
+        "Using fallback provider search parsing"
+    }
+}
+
+impl RegistrySearchItem for ModuleInfo {
+    type Response = ModuleSearchResponse;
+
+    fn items(response: Self::Response) -> Vec<Self> {
+        response.modules
+    }
+
+    fn fallback(client: &RegistryClient, json_value: &Value) -> Vec<Self> {
+        json_value
+            .get("modules")
+            .and_then(|v| v.as_array())
+            .map(|modules| client.extract_modules_from_array(modules))
+            .unwrap_or_default()
+    }
+
+    fn parse_error_label() -> &'static str {
+        "module search response"
+    }
+
+    fn fallback_warning() -> &'static str {
+        "Using fallback module search parsing"
+    }
 }
 
 impl Default for RegistryClient {
@@ -483,122 +420,140 @@ impl RegistryClient {
         }
     }
 
-    /// Search for providers in the Terraform Registry with improved error handling
-    pub async fn search_providers(&self, query: &str) -> Result<Vec<ProviderInfo>, RegistryError> {
-        let url = format!("{}/v1/providers", self.base_url);
-        debug!("Searching providers with query '{}' at URL: {}", query, url);
-
-        let response = self.client.get(&url).query(&[("q", query)]).send().await?;
+    async fn send_json_request(
+        &self,
+        request: RequestBuilder,
+        context: JsonRequestContext<'_>,
+    ) -> Result<Value, RegistryError> {
+        let response = request.send().await?;
         let status = response.status();
 
-        debug!("Search response status: {}", status);
+        debug!("{} response status: {}", context.label, status);
 
-        if status == 429 {
-            warn!("Rate limit exceeded for provider search");
+        if status == StatusCode::NOT_FOUND {
+            if let Some(not_found) = context.not_found {
+                warn!("{}", not_found.warn_message());
+                return Err(not_found.error());
+            }
+        }
+
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            warn!("Rate limit exceeded for {}", context.label);
             return Err(RegistryError::RateLimited);
         }
 
         if !status.is_success() {
-            error!("HTTP error {} for search request", status);
-            return Err(RegistryError::HttpError(format!("HTTP {}", status)));
+            error!("HTTP error {} for {}", status, context.label);
+            return Err(RegistryError::HttpError(format!("HTTP {status}")));
         }
 
         let response_text = response.text().await?;
         debug!(
-            "Search response (first 1000 chars): {}",
-            &response_text.chars().take(1000).collect::<String>()
+            "{} response (first {} chars): {}",
+            context.label,
+            context.preview_chars,
+            &response_text
+                .chars()
+                .take(context.preview_chars)
+                .collect::<String>()
         );
 
-        match serde_json::from_str::<Value>(&response_text) {
-            Ok(json_value) => {
-                debug!("Parsed search JSON structure: {:#?}", json_value);
+        serde_json::from_str::<Value>(&response_text).map_err(|e| {
+            error!("Failed to parse {} JSON: {}", context.label, e);
+            error!("Response text was: {}", response_text);
+            RegistryError::JsonError(format!("Invalid JSON response: {e}"))
+        })
+    }
 
-                match serde_json::from_value::<RegistrySearchResponse>(json_value.clone()) {
-                    Ok(mut search_response) => {
-                        // Handle alternative response formats
-                        if search_response.providers.is_empty() {
-                            if let Some(data) = search_response.data.take() {
-                                search_response.providers = data;
-                            }
-                        }
+    async fn search_registry_items<T>(
+        &self,
+        kind: RegistrySearchKind,
+        query: &str,
+    ) -> Result<Vec<T>, RegistryError>
+    where
+        T: RegistrySearchItem,
+    {
+        let url = kind.url(&self.base_url);
+        let label = kind.label();
+        debug!("Searching {} with query '{}' at URL: {}", label, query, url);
+        let json_value = self
+            .send_json_request(
+                self.client.get(&url).query(&kind.params(query)),
+                JsonRequestContext {
+                    label,
+                    preview_chars: 1000,
+                    not_found: None,
+                },
+            )
+            .await?;
 
-                        if search_response.providers.is_empty() {
-                            info!("No search results found for query: {}", query);
-                            return Err(RegistryError::NoSearchResults {
-                                query: query.to_string(),
-                            });
-                        }
-
-                        info!(
-                            "Found {} providers for query: {}",
-                            search_response.providers.len(),
-                            query
-                        );
-                        Ok(search_response.providers)
-                    }
-                    Err(e) => {
-                        error!("Failed to deserialize search response: {}", e);
-
-                        // Try manual extraction
-                        if let Some(providers_array) =
-                            json_value.get("providers").and_then(|v| v.as_array())
-                        {
-                            let providers = self.extract_providers_from_array(providers_array);
-                            if !providers.is_empty() {
-                                warn!("Using fallback provider search parsing");
-                                return Ok(providers);
-                            }
-                        }
-
-                        Err(RegistryError::JsonError(format!(
-                            "Failed to parse search response: {}",
-                            e
-                        )))
-                    }
-                }
-            }
+        let items = match serde_json::from_value::<T::Response>(json_value.clone()) {
+            Ok(response) => T::items(response),
             Err(e) => {
-                error!("Failed to parse search JSON: {}", e);
-                error!("Response text was: {}", response_text);
-                Err(RegistryError::JsonError(format!(
-                    "Invalid JSON response: {}",
+                error!("Failed to deserialize {}: {}", T::parse_error_label(), e);
+                let fallback = T::fallback(self, &json_value);
+                if !fallback.is_empty() {
+                    warn!("{}", T::fallback_warning());
+                    return Ok(fallback);
+                }
+                return Err(RegistryError::JsonError(format!(
+                    "Failed to parse {}: {}",
+                    T::parse_error_label(),
                     e
-                )))
+                )));
             }
+        };
+
+        if items.is_empty() {
+            info!("No {} results found for query: {}", label, query);
+            return Err(RegistryError::NoSearchResults {
+                query: query.to_string(),
+            });
         }
+
+        info!(
+            "Found {} {} results for query: {}",
+            items.len(),
+            label,
+            query
+        );
+        Ok(items)
+    }
+
+    async fn provider_endpoint_json(
+        &self,
+        endpoint: ProviderEndpoint,
+        provider_name: &str,
+        namespace: &str,
+    ) -> Result<Value, RegistryError> {
+        let url = endpoint.url(&self.base_url, namespace, provider_name);
+        debug!("Fetching {} from URL: {}", endpoint.label(), url);
+        self.send_json_request(
+            self.client.get(&url),
+            JsonRequestContext {
+                label: endpoint.label(),
+                preview_chars: endpoint.preview_chars(),
+                not_found: Some(RegistryNotFound::Provider {
+                    provider: provider_name,
+                    namespace,
+                    label: endpoint.not_found_label(),
+                }),
+            },
+        )
+        .await
+    }
+
+    /// Search for providers in the Terraform Registry with improved error handling
+    pub async fn search_providers(&self, query: &str) -> Result<Vec<ProviderInfo>, RegistryError> {
+        self.search_registry_items(RegistrySearchKind::Provider, query)
+            .await
     }
 
     /// Helper function to extract providers from JSON array with fallback parsing
     fn extract_providers_from_array(&self, providers_array: &[Value]) -> Vec<ProviderInfo> {
         providers_array
             .iter()
-            .filter_map(|provider| {
-                let mut provider_info = ProviderInfo::default();
-
-                if let Some(name) = provider.get("name").and_then(|v| v.as_str()) {
-                    provider_info.name = name.to_string();
-                } else {
-                    return None; // Name is required
-                }
-
-                if let Some(namespace) = provider.get("namespace").and_then(|v| v.as_str()) {
-                    provider_info.namespace = namespace.to_string();
-                }
-
-                if let Some(desc) = provider.get("description").and_then(|v| v.as_str()) {
-                    provider_info.description = desc.to_string();
-                }
-
-                if let Some(downloads) = provider.get("downloads").and_then(|v| v.as_u64()) {
-                    provider_info.downloads = downloads;
-                }
-
-                if let Some(version) = provider.get("version").and_then(|v| v.as_str()) {
-                    provider_info.version = version.to_string();
-                }
-
-                Some(provider_info)
-            })
+            .filter_map(provider_info_from_value)
             .collect()
     }
 
@@ -608,108 +563,15 @@ impl RegistryClient {
         provider_name: &str,
         namespace: &str,
     ) -> Result<ProviderInfo, RegistryError> {
-        let url = format!(
-            "{}/v1/providers/{}/{}",
-            self.base_url, namespace, provider_name
-        );
-
-        debug!("Fetching provider info from URL: {}", url);
-
-        let response = self.client.get(&url).send().await?;
-        let status = response.status();
-
-        debug!("Response status: {}", status);
-        debug!("Response headers: {:?}", response.headers());
-
-        if status == 404 {
-            warn!("Provider not found: {}/{}", namespace, provider_name);
-            return Err(RegistryError::ProviderNotFound {
-                provider: provider_name.to_string(),
-                namespace: namespace.to_string(),
-            });
-        }
-
-        if status == 429 {
-            warn!("Rate limit exceeded for provider info request");
-            return Err(RegistryError::RateLimited);
-        }
-
-        if !status.is_success() {
-            error!(
-                "HTTP error {}: {}",
-                status,
-                status.canonical_reason().unwrap_or("Unknown")
-            );
-            return Err(RegistryError::HttpError(format!("HTTP {}", status)));
-        }
-
-        // Get response text for detailed debugging
-        let response_text = response.text().await?;
-        debug!(
-            "Response body (first 1000 chars): {}",
-            &response_text.chars().take(1000).collect::<String>()
-        );
-
-        // First try to parse as generic JSON to debug structure
-        match serde_json::from_str::<Value>(&response_text) {
-            Ok(json_value) => {
-                debug!("Successfully parsed JSON. Structure: {:#?}", json_value);
-
-                // Now try to deserialize into ProviderInfo
-                match serde_json::from_value::<ProviderInfo>(json_value.clone()) {
-                    Ok(provider_info) => {
-                        info!(
-                            "Successfully retrieved provider info for {}/{}",
-                            namespace, provider_name
-                        );
-                        Ok(provider_info)
-                    }
-                    Err(e) => {
-                        error!("Failed to deserialize ProviderInfo: {}", e);
-                        error!(
-                            "Parsed JSON was: {}",
-                            serde_json::to_string_pretty(&json_value)
-                                .unwrap_or_else(|_| "Invalid JSON".to_string())
-                        );
-
-                        // Try to extract essential fields manually
-                        let provider_info = ProviderInfo {
-                            name: json_value
-                                .get("name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(provider_name)
-                                .to_string(),
-                            namespace: json_value
-                                .get("namespace")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(namespace)
-                                .to_string(),
-                            description: json_value
-                                .get("description")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            downloads: json_value
-                                .get("downloads")
-                                .and_then(|v| v.as_u64())
-                                .unwrap_or(0),
-                            ..Default::default()
-                        };
-
-                        warn!("Using fallback provider info parsing due to deserialization error");
-                        Ok(provider_info)
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to parse JSON: {}", e);
-                error!("Response text was: {}", response_text);
-                Err(RegistryError::JsonError(format!(
-                    "Invalid JSON response: {}",
-                    e
-                )))
-            }
-        }
+        let json_value = self
+            .provider_endpoint_json(ProviderEndpoint::Info, provider_name, namespace)
+            .await?;
+        debug!("Successfully parsed JSON. Structure: {:#?}", json_value);
+        Ok(parse_provider_info_json(
+            json_value,
+            provider_name,
+            namespace,
+        ))
     }
 
     /// Get latest version of a provider with improved error handling
@@ -718,122 +580,11 @@ impl RegistryClient {
         provider_name: &str,
         namespace: &str,
     ) -> Result<String, RegistryError> {
-        let url = format!(
-            "{}/v1/providers/{}/{}/versions",
-            self.base_url, namespace, provider_name
-        );
-
-        debug!("Fetching provider versions from URL: {}", url);
-
-        let response = self.client.get(&url).send().await?;
-        let status = response.status();
-
-        debug!("Response status: {}", status);
-
-        if status == 404 {
-            warn!(
-                "Provider versions not found: {}/{}",
-                namespace, provider_name
-            );
-            return Err(RegistryError::ProviderNotFound {
-                provider: provider_name.to_string(),
-                namespace: namespace.to_string(),
-            });
-        }
-
-        if status == 429 {
-            warn!("Rate limit exceeded for provider versions request");
-            return Err(RegistryError::RateLimited);
-        }
-
-        if !status.is_success() {
-            error!(
-                "HTTP error {}: {}",
-                status,
-                status.canonical_reason().unwrap_or("Unknown")
-            );
-            return Err(RegistryError::HttpError(format!("HTTP {}", status)));
-        }
-
-        let response_text = response.text().await?;
-        debug!(
-            "Versions response (first 500 chars): {}",
-            &response_text.chars().take(500).collect::<String>()
-        );
-
-        // Parse JSON and handle multiple response formats
-        match serde_json::from_str::<Value>(&response_text) {
-            Ok(json_value) => {
-                debug!("Parsed versions JSON structure: {:#?}", json_value);
-
-                // Try to deserialize into ProviderVersions
-                match serde_json::from_value::<ProviderVersions>(json_value.clone()) {
-                    Ok(mut versions) => {
-                        // Handle alternative response formats
-                        if versions.versions.is_empty() {
-                            if let Some(data) = versions.data.as_ref() {
-                                versions.versions = data
-                                    .iter()
-                                    .map(|v| v.version.clone())
-                                    .filter(|v| !v.is_empty())
-                                    .collect();
-                            }
-                        }
-
-                        if versions.versions.is_empty() {
-                            warn!(
-                                "No versions available for provider {}/{}",
-                                namespace, provider_name
-                            );
-                            return Err(RegistryError::NoVersionsAvailable {
-                                provider: provider_name.to_string(),
-                                namespace: namespace.to_string(),
-                            });
-                        }
-
-                        let latest_version = versions
-                            .versions
-                            .last()
-                            .cloned()
-                            .ok_or(RegistryError::InvalidResponse)?;
-
-                        info!(
-                            "Found latest version {} for provider {}/{}",
-                            latest_version, namespace, provider_name
-                        );
-                        Ok(latest_version)
-                    }
-                    Err(e) => {
-                        error!("Failed to deserialize ProviderVersions: {}", e);
-
-                        // Try manual extraction
-                        if let Some(versions_array) =
-                            json_value.get("versions").and_then(|v| v.as_array())
-                        {
-                            if let Some(first_version) =
-                                versions_array.first().and_then(|v| v.as_str())
-                            {
-                                warn!("Using fallback version parsing");
-                                return Ok(first_version.to_string());
-                            }
-                        }
-
-                        Err(RegistryError::JsonError(format!(
-                            "Failed to parse versions: {}",
-                            e
-                        )))
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to parse versions JSON: {}", e);
-                error!("Response text was: {}", response_text);
-                Err(RegistryError::JsonError(format!(
-                    "Invalid JSON response: {}",
-                    e
-                )))
-            }
-        }
+        let json_value = self
+            .provider_endpoint_json(ProviderEndpoint::Versions, provider_name, namespace)
+            .await?;
+        debug!("Parsed versions JSON structure: {:#?}", json_value);
+        parse_latest_provider_version_json(json_value, provider_name, namespace)
     }
 
     /// Search for provider documentation IDs with multiple endpoint patterns
@@ -1009,53 +760,7 @@ impl RegistryClient {
 
     /// Helper function to extract docs from JSON array with fallback parsing
     fn extract_docs_from_array(&self, docs_array: &[Value]) -> Vec<DocIdResult> {
-        docs_array
-            .iter()
-            .filter_map(|doc| {
-                let doc_result = DocIdResult {
-                    id: doc
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    title: doc
-                        .get("title")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    description: doc
-                        .get("description")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    category: doc
-                        .get("category")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    slug: doc
-                        .get("slug")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                    path: doc
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                    subcategory: doc
-                        .get("subcategory")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                    extra: HashMap::new(),
-                };
-
-                // Only include if we have essential fields
-                if !doc_result.id.is_empty() || !doc_result.title.is_empty() {
-                    Some(doc_result)
-                } else {
-                    None
-                }
-            })
-            .collect()
+        docs_array.iter().filter_map(doc_id_from_value).collect()
     }
 
     /// Get provider documentation content by ID with multiple endpoint patterns
@@ -1131,154 +836,15 @@ impl RegistryClient {
 
     /// Search for modules in the Terraform Registry
     pub async fn search_modules(&self, query: &str) -> Result<Vec<ModuleInfo>, RegistryError> {
-        let url = format!("{}/v1/modules/search", self.base_url);
-        debug!("Searching modules with query '{}' at URL: {}", query, url);
-
-        let response = self
-            .client
-            .get(&url)
-            .query(&[("q", query), ("limit", "20")])
-            .send()
-            .await?;
-        let status = response.status();
-
-        debug!("Module search response status: {}", status);
-
-        if status == 429 {
-            warn!("Rate limit exceeded for module search");
-            return Err(RegistryError::RateLimited);
-        }
-
-        if !status.is_success() {
-            error!("HTTP error {} for module search request", status);
-            return Err(RegistryError::HttpError(format!("HTTP {}", status)));
-        }
-
-        let response_text = response.text().await?;
-        debug!(
-            "Module search response (first 1000 chars): {}",
-            &response_text.chars().take(1000).collect::<String>()
-        );
-
-        match serde_json::from_str::<Value>(&response_text) {
-            Ok(json_value) => {
-                debug!("Parsed module search JSON structure");
-
-                match serde_json::from_value::<ModuleSearchResponse>(json_value.clone()) {
-                    Ok(search_response) => {
-                        if search_response.modules.is_empty() {
-                            info!("No module search results found for query: {}", query);
-                            return Err(RegistryError::NoSearchResults {
-                                query: query.to_string(),
-                            });
-                        }
-
-                        info!(
-                            "Found {} modules for query: {}",
-                            search_response.modules.len(),
-                            query
-                        );
-                        Ok(search_response.modules)
-                    }
-                    Err(e) => {
-                        error!("Failed to deserialize module search response: {}", e);
-
-                        // Try manual extraction
-                        if let Some(modules_array) =
-                            json_value.get("modules").and_then(|v| v.as_array())
-                        {
-                            let modules = self.extract_modules_from_array(modules_array);
-                            if !modules.is_empty() {
-                                warn!("Using fallback module search parsing");
-                                return Ok(modules);
-                            }
-                        }
-
-                        Err(RegistryError::JsonError(format!(
-                            "Failed to parse module search response: {}",
-                            e
-                        )))
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to parse module search JSON: {}", e);
-                Err(RegistryError::JsonError(format!(
-                    "Invalid JSON response: {}",
-                    e
-                )))
-            }
-        }
+        self.search_registry_items(RegistrySearchKind::Module, query)
+            .await
     }
 
     /// Helper function to extract modules from JSON array
     fn extract_modules_from_array(&self, modules_array: &[Value]) -> Vec<ModuleInfo> {
         modules_array
             .iter()
-            .filter_map(|module| {
-                let id = module
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-
-                if id.is_empty() {
-                    return None;
-                }
-
-                Some(ModuleInfo {
-                    id,
-                    namespace: module
-                        .get("namespace")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    name: module
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    provider: module
-                        .get("provider")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    version: module
-                        .get("version")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    description: module
-                        .get("description")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    source: module
-                        .get("source")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    published_at: module
-                        .get("published_at")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    downloads: module
-                        .get("downloads")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0),
-                    verified: module
-                        .get("verified")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                    owner: module
-                        .get("owner")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    extra: HashMap::new(),
-                })
-            })
+            .filter_map(module_info_from_value)
             .collect()
     }
 
@@ -1303,116 +869,55 @@ impl RegistryClient {
 
         debug!("Fetching module details from URL: {}", url);
 
-        let response = self.client.get(&url).send().await?;
-        let status = response.status();
+        let json_value = self
+            .send_json_request(
+                self.client.get(&url),
+                JsonRequestContext {
+                    label: "module details",
+                    preview_chars: 1000,
+                    not_found: Some(RegistryNotFound::Module {
+                        module: name,
+                        provider,
+                        namespace,
+                        label: "Module",
+                    }),
+                },
+            )
+            .await?;
 
-        debug!("Module details response status: {}", status);
-
-        if status == 404 {
-            warn!("Module not found: {}/{}/{}", namespace, name, provider);
-            return Err(RegistryError::ModuleNotFound {
-                module: name.to_string(),
-                provider: provider.to_string(),
-                namespace: namespace.to_string(),
-            });
-        }
-
-        if status == 429 {
-            warn!("Rate limit exceeded for module details request");
-            return Err(RegistryError::RateLimited);
-        }
-
-        if !status.is_success() {
-            error!("HTTP error {} for module details request", status);
-            return Err(RegistryError::HttpError(format!("HTTP {}", status)));
-        }
-
-        let response_text = response.text().await?;
-        debug!(
-            "Module details response (first 1000 chars): {}",
-            &response_text.chars().take(1000).collect::<String>()
-        );
-
-        match serde_json::from_str::<Value>(&response_text) {
-            Ok(json_value) => {
-                match serde_json::from_value::<ModuleDetails>(json_value.clone()) {
-                    Ok(module_details) => {
-                        info!(
-                            "Successfully retrieved module details for {}/{}/{}",
-                            namespace, name, provider
-                        );
-                        Ok(module_details)
-                    }
-                    Err(e) => {
-                        error!("Failed to deserialize module details: {}", e);
-
-                        // Try manual extraction for essential fields
-                        let module_details = ModuleDetails {
-                            id: json_value
-                                .get("id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            namespace: json_value
-                                .get("namespace")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(namespace)
-                                .to_string(),
-                            name: json_value
-                                .get("name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(name)
-                                .to_string(),
-                            provider: json_value
-                                .get("provider")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(provider)
-                                .to_string(),
-                            version: json_value
-                                .get("version")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            description: json_value
-                                .get("description")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            source: json_value
-                                .get("source")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            published_at: json_value
-                                .get("published_at")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            downloads: json_value
-                                .get("downloads")
-                                .and_then(|v| v.as_u64())
-                                .unwrap_or(0),
-                            verified: json_value
-                                .get("verified")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false),
-                            root: None,
-                            submodules: vec![],
-                            versions: vec![],
-                            extra: HashMap::new(),
-                        };
-
-                        warn!("Using fallback module details parsing");
-                        Ok(module_details)
-                    }
-                }
+        match serde_json::from_value::<ModuleDetails>(json_value.clone()) {
+            Ok(module_details) => {
+                info!(
+                    "Successfully retrieved module details for {}/{}/{}",
+                    namespace, name, provider
+                );
+                Ok(module_details)
             }
             Err(e) => {
-                error!("Failed to parse module details JSON: {}", e);
-                Err(RegistryError::JsonError(format!(
-                    "Invalid JSON response: {}",
-                    e
-                )))
+                error!("Failed to deserialize module details: {}", e);
+                warn!("Using fallback module details parsing");
+                Ok(ModuleDetails {
+                    id: value_str(&json_value, "id"),
+                    namespace: value_str_or(&json_value, "namespace", namespace),
+                    name: value_str_or(&json_value, "name", name),
+                    provider: value_str_or(&json_value, "provider", provider),
+                    version: value_str(&json_value, "version"),
+                    description: value_str(&json_value, "description"),
+                    source: value_str(&json_value, "source"),
+                    published_at: value_str(&json_value, "published_at"),
+                    downloads: json_value
+                        .get("downloads")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0),
+                    verified: json_value
+                        .get("verified")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    root: None,
+                    submodules: vec![],
+                    versions: vec![],
+                    extra: HashMap::new(),
+                })
             }
         }
     }
@@ -1431,100 +936,50 @@ impl RegistryClient {
 
         debug!("Fetching module versions from URL: {}", url);
 
-        let response = self.client.get(&url).send().await?;
-        let status = response.status();
-
-        debug!("Module versions response status: {}", status);
-
-        if status == 404 {
-            warn!(
-                "Module versions not found: {}/{}/{}",
-                namespace, name, provider
-            );
-            return Err(RegistryError::ModuleNotFound {
-                module: name.to_string(),
-                provider: provider.to_string(),
-                namespace: namespace.to_string(),
-            });
-        }
-
-        if status == 429 {
-            warn!("Rate limit exceeded for module versions request");
-            return Err(RegistryError::RateLimited);
-        }
-
-        if !status.is_success() {
-            error!("HTTP error {} for module versions request", status);
-            return Err(RegistryError::HttpError(format!("HTTP {}", status)));
-        }
-
-        let response_text = response.text().await?;
-        debug!(
-            "Module versions response (first 500 chars): {}",
-            &response_text.chars().take(500).collect::<String>()
-        );
-
-        match serde_json::from_str::<Value>(&response_text) {
-            Ok(json_value) => {
-                // Try to parse as ModuleVersionsResponse
-                if let Ok(versions_response) =
-                    serde_json::from_value::<ModuleVersionsResponse>(json_value.clone())
-                {
-                    let versions: Vec<String> = versions_response
-                        .modules
-                        .into_iter()
-                        .flat_map(|m| m.versions.into_iter().map(|v| v.version))
-                        .filter(|v| !v.is_empty())
-                        .collect();
-
-                    if versions.is_empty() {
-                        warn!(
-                            "No versions available for module {}/{}/{}",
-                            namespace, name, provider
-                        );
-                        return Err(RegistryError::NoModuleVersionsAvailable {
-                            module: format!("{}/{}/{}", namespace, name, provider),
-                        });
-                    }
-
-                    info!(
-                        "Found {} versions for module {}/{}/{}",
-                        versions.len(),
+        let json_value = self
+            .send_json_request(
+                self.client.get(&url),
+                JsonRequestContext {
+                    label: "module versions",
+                    preview_chars: 500,
+                    not_found: Some(RegistryNotFound::Module {
+                        module: name,
+                        provider,
                         namespace,
-                        name,
-                        provider
-                    );
-                    return Ok(versions);
-                }
+                        label: "Module versions",
+                    }),
+                },
+            )
+            .await?;
 
-                // Fallback: try to extract versions directly
-                if let Some(modules_array) = json_value.get("modules").and_then(|v| v.as_array()) {
-                    let versions: Vec<String> = modules_array
-                        .iter()
-                        .filter_map(|m| m.get("versions").and_then(|v| v.as_array()))
-                        .flatten()
-                        .filter_map(|v| v.get("version").and_then(|ver| ver.as_str()))
-                        .map(|s| s.to_string())
-                        .collect();
-
-                    if !versions.is_empty() {
-                        warn!("Using fallback module versions parsing");
-                        return Ok(versions);
-                    }
-                }
-
-                Err(RegistryError::NoModuleVersionsAvailable {
-                    module: format!("{}/{}/{}", namespace, name, provider),
-                })
-            }
-            Err(e) => {
-                error!("Failed to parse module versions JSON: {}", e);
-                Err(RegistryError::JsonError(format!(
-                    "Invalid JSON response: {}",
-                    e
-                )))
+        if let Ok(versions_response) =
+            serde_json::from_value::<ModuleVersionsResponse>(json_value.clone())
+        {
+            let versions = module_versions_from_response(versions_response);
+            if !versions.is_empty() {
+                info!(
+                    "Found {} versions for module {}/{}/{}",
+                    versions.len(),
+                    namespace,
+                    name,
+                    provider
+                );
+                return Ok(versions);
             }
         }
+
+        if let Some(versions) = module_versions_from_fallback_json(&json_value) {
+            warn!("Using fallback module versions parsing");
+            return Ok(versions);
+        }
+
+        warn!(
+            "No versions available for module {}/{}/{}",
+            namespace, name, provider
+        );
+        Err(RegistryError::NoModuleVersionsAvailable {
+            module: format!("{namespace}/{name}/{provider}"),
+        })
     }
 
     /// Get the latest version of a module
@@ -1546,7 +1001,7 @@ impl RegistryClient {
                 .into_iter()
                 .next()
                 .ok_or_else(|| RegistryError::NoModuleVersionsAvailable {
-                    module: format!("{}/{}/{}", namespace, name, provider),
+                    module: format!("{namespace}/{name}/{provider}"),
                 })
         } else {
             Ok(details.version)

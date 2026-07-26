@@ -1,57 +1,40 @@
 # Configuration
 
-## Environment Variables
+README is the user-facing environment-variable reference. Keep this file
+focused on agent-relevant defaults and trust boundaries.
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `TERRAFORM_DIR` | Override default project directory | - |
-| `TFMCP_ALLOW_DANGEROUS_OPS` | Enable apply/destroy operations | `false` |
-| `TFMCP_ALLOW_AUTO_APPROVE` | Enable auto-approve for dangerous operations | `false` |
-| `TFMCP_LOG_LEVEL` | Control logging verbosity | `info` |
-| `TERRAFORM_BINARY_NAME` | Custom Terraform binary name | `terraform` |
+| Area | Variables | Default |
+| --- | --- | --- |
+| Project | `TERRAFORM_DIR`, `TERRAFORM_BINARY_NAME` | current/configured project, `terraform` |
+| Local safety | `TFMCP_ALLOW_DANGEROUS_OPS`, `TFMCP_ALLOW_AUTO_APPROVE` | `false`, `false` |
+| HCP/TFE | `TFE_ADDRESS`, `TFE_TOKEN`, `TFE_MAX_RESPONSE_BYTES` | HCP Terraform, unset, `65536` |
+| HCP/TFE writes | `ENABLE_TF_OPERATIONS` | `false` |
+| Transport | `TRANSPORT_MODE`, `TRANSPORT_HOST`, `TRANSPORT_PORT` | `stdio`, `127.0.0.1`, `8080` |
+| Browser/HTTP | `MCP_ALLOWED_ORIGINS`, `MCP_ALLOWED_HOSTS` | loopback-only |
+| Deployment | `MCP_ORGANIZATION_ALLOWLIST`, rate-limit and TLS variables | unset |
 
-## Security Features
+`MCP_CORS_MODE` controls response CORS headers. MCP request Origin validation
+remains enabled in every mode. Do not add request-scoped `TFE_TOKEN`,
+`Authorization`, or `TFE_ADDRESS` passthrough. With an organization allowlist,
+reject account-wide and ID-only TFE requests whose owner cannot be verified.
 
-- Built-in protection against production file patterns (`prod*`, `production*`, `secret*`)
-- Audit logging to `~/.tfmcp/audit.log`
-- Resource count limits and access controls
-- Dangerous operations disabled by default
+Terraform 1.15.8 is the CI and Docker baseline.
 
-## Claude Desktop Integration
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+## Claude Desktop
 
 ```json
 {
   "mcpServers": {
     "tfmcp": {
-      "command": "/path/to/tfmcp",
+      "command": "/absolute/path/to/tfmcp",
       "args": ["mcp"],
       "env": {
-        "TERRAFORM_DIR": "/path/to/terraform/project"
+        "TERRAFORM_DIR": "/absolute/path/to/terraform/project"
       }
     }
   }
 }
 ```
 
-## Directory Resolution Priority
-
-1. Command line `--dir` argument
-2. `TERRAFORM_DIR` environment variable
-3. Configuration file setting
-4. Current working directory
-5. Fallback to `~/terraform` (with auto-creation)
-
-## Docker Operations
-
-```bash
-# Build Docker image
-docker build -t tfmcp .
-
-# Run in container
-docker run -it tfmcp
-
-# Run with mounted Terraform project
-docker run -it -v /path/to/terraform:/app/terraform tfmcp --dir /app/terraform
-```
+Use absolute paths. Keep secrets in the server process environment rather than
+MCP request arguments or committed configuration.

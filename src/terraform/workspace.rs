@@ -26,8 +26,7 @@ impl std::str::FromStr for WorkspaceAction {
             "select" | "switch" => Ok(WorkspaceAction::Select),
             "delete" | "remove" => Ok(WorkspaceAction::Delete),
             _ => Err(anyhow::anyhow!(
-                "Unknown workspace action: {}. Valid actions: list, show, new, select, delete",
-                s
+                "Unknown workspace action: {s}. Valid actions: list, show, new, select, delete"
             )),
         }
     }
@@ -63,12 +62,17 @@ pub fn execute_workspace(
         WorkspaceAction::New => {
             let name = workspace_name
                 .ok_or_else(|| anyhow::anyhow!("Workspace name required for 'new' action"))?;
-            new_workspace(terraform_path, project_dir, name)
+            run_named_workspace_action(terraform_path, project_dir, name, NamedWorkspaceAction::New)
         }
         WorkspaceAction::Select => {
             let name = workspace_name
                 .ok_or_else(|| anyhow::anyhow!("Workspace name required for 'select' action"))?;
-            select_workspace(terraform_path, project_dir, name)
+            run_named_workspace_action(
+                terraform_path,
+                project_dir,
+                name,
+                NamedWorkspaceAction::Select,
+            )
         }
         WorkspaceAction::Delete => {
             let name = workspace_name
@@ -149,75 +153,96 @@ fn show_workspace(terraform_path: &Path, project_dir: &Path) -> anyhow::Result<W
         action: "show".to_string(),
         current_workspace: Some(current.clone()),
         workspaces: None,
-        message: format!("Current workspace: {}", current),
+        message: format!("Current workspace: {current}"),
     })
 }
 
-/// Create a new workspace
-fn new_workspace(
+enum NamedWorkspaceAction {
+    New,
+    Select,
+}
+
+impl NamedWorkspaceAction {
+    fn terraform_action(&self) -> &'static str {
+        match self {
+            Self::New => "new",
+            Self::Select => "select",
+        }
+    }
+
+    fn result_action(&self) -> &'static str {
+        match self {
+            Self::New => "new",
+            Self::Select => "select",
+        }
+    }
+
+    fn message(&self, name: &str) -> String {
+        match self {
+            Self::New => format!("Created and switched to workspace '{name}'"),
+            Self::Select => format!("Switched to workspace '{name}'"),
+        }
+    }
+
+    fn failure_prefix(&self) -> &'static str {
+        match self {
+            Self::New => "Failed to create workspace",
+            Self::Select => "Failed to select workspace",
+        }
+    }
+
+    fn mapped_error(&self, stderr: &str, name: &str) -> Option<anyhow::Error> {
+        match self {
+            Self::New if stderr.contains("already exists") => {
+                Some(anyhow::anyhow!("Workspace '{name}' already exists"))
+            }
+            Self::Select
+                if stderr.contains("doesn't exist") || stderr.contains("does not exist") =>
+            {
+                Some(anyhow::anyhow!("Workspace '{name}' does not exist"))
+            }
+            _ => None,
+        }
+    }
+
+    fn validate(&self, name: &str) -> anyhow::Result<()> {
+        if matches!(self, Self::New) && !is_valid_workspace_name(name) {
+            return Err(anyhow::anyhow!(
+                "Invalid workspace name: '{name}'. Names must be alphanumeric with hyphens or underscores"
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn run_named_workspace_action(
     terraform_path: &Path,
     project_dir: &Path,
     name: &str,
+    action: NamedWorkspaceAction,
 ) -> anyhow::Result<WorkspaceResult> {
-    // Validate workspace name
-    if !is_valid_workspace_name(name) {
-        return Err(anyhow::anyhow!(
-            "Invalid workspace name: '{}'. Names must be alphanumeric with hyphens or underscores",
-            name
-        ));
-    }
-
+    action.validate(name)?;
     let output = Command::new(terraform_path)
         .arg("workspace")
-        .arg("new")
+        .arg(action.terraform_action())
         .arg(name)
         .current_dir(project_dir)
         .output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("already exists") {
-            return Err(anyhow::anyhow!("Workspace '{}' already exists", name));
+        if let Some(error) = action.mapped_error(&stderr, name) {
+            return Err(error);
         }
-        return Err(anyhow::anyhow!("Failed to create workspace: {}", stderr));
+        return Err(anyhow::anyhow!("{}: {}", action.failure_prefix(), stderr));
     }
 
     Ok(WorkspaceResult {
         success: true,
-        action: "new".to_string(),
+        action: action.result_action().to_string(),
         current_workspace: Some(name.to_string()),
         workspaces: None,
-        message: format!("Created and switched to workspace '{}'", name),
-    })
-}
-
-/// Select (switch to) a workspace
-fn select_workspace(
-    terraform_path: &Path,
-    project_dir: &Path,
-    name: &str,
-) -> anyhow::Result<WorkspaceResult> {
-    let output = Command::new(terraform_path)
-        .arg("workspace")
-        .arg("select")
-        .arg(name)
-        .current_dir(project_dir)
-        .output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("doesn't exist") || stderr.contains("does not exist") {
-            return Err(anyhow::anyhow!("Workspace '{}' does not exist", name));
-        }
-        return Err(anyhow::anyhow!("Failed to select workspace: {}", stderr));
-    }
-
-    Ok(WorkspaceResult {
-        success: true,
-        action: "select".to_string(),
-        current_workspace: Some(name.to_string()),
-        workspaces: None,
-        message: format!("Switched to workspace '{}'", name),
+        message: action.message(name),
     })
 }
 
@@ -236,8 +261,7 @@ fn delete_workspace(
     let current = show_workspace(terraform_path, project_dir)?;
     if current.current_workspace.as_deref() == Some(name) {
         return Err(anyhow::anyhow!(
-            "Cannot delete workspace '{}' because it is currently selected. Switch to another workspace first.",
-            name
+            "Cannot delete workspace '{name}' because it is currently selected. Switch to another workspace first."
         ));
     }
 
@@ -251,16 +275,14 @@ fn delete_workspace(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if stderr.contains("doesn't exist") || stderr.contains("does not exist") {
-            return Err(anyhow::anyhow!("Workspace '{}' does not exist", name));
+            return Err(anyhow::anyhow!("Workspace '{name}' does not exist"));
         }
         if stderr.contains("is not empty") {
             return Err(anyhow::anyhow!(
-                "Workspace '{}' is not empty. Use 'terraform workspace delete -force {}' to force deletion.",
-                name,
-                name
+                "Workspace '{name}' is not empty. Use 'terraform workspace delete -force {name}' to force deletion."
             ));
         }
-        return Err(anyhow::anyhow!("Failed to delete workspace: {}", stderr));
+        return Err(anyhow::anyhow!("Failed to delete workspace: {stderr}"));
     }
 
     Ok(WorkspaceResult {
@@ -268,7 +290,7 @@ fn delete_workspace(
         action: "delete".to_string(),
         current_workspace: current.current_workspace,
         workspaces: None,
-        message: format!("Deleted workspace '{}'", name),
+        message: format!("Deleted workspace '{name}'"),
     })
 }
 

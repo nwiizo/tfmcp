@@ -1,16 +1,8 @@
-mod config;
-mod core;
-mod formatters;
-mod mcp;
-mod prompts;
-mod registry;
-mod shared;
-mod terraform;
-
 use clap::{Parser, Subcommand};
-use core::tfmcp::TfMcp;
-use mcp::server::{TfMcpServer, ToolFilter};
-use shared::logging;
+use tfmcp::TfMcp;
+use tfmcp::mcp::server::{TfMcpServer, ToolFilter};
+use tfmcp::mcp::transport::{HttpTransportConfig, TransportMode};
+use tfmcp::shared::logging;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -50,7 +42,7 @@ pub struct Cli {
 enum Commands {
     #[command(name = "mcp", about = "Launch tfmcp as an MCP server")]
     Mcp {
-        /// Tool categories to enable (comma-separated): terraform, registry, analysis, all
+        /// Tool categories to enable (comma-separated): default, terraform, registry, analysis, operations, all
         #[arg(long, default_value = "all", value_delimiter = ',')]
         toolsets: Vec<String>,
         /// Individual tools to enable (comma-separated, overrides --toolsets)
@@ -70,7 +62,7 @@ async fn main() {
     let cli = Cli::parse();
 
     if cli.version {
-        println!("{}", APP_VERSION);
+        println!("{APP_VERSION}");
         std::process::exit(0);
     }
 
@@ -81,13 +73,33 @@ async fn main() {
                 let tool_filter = ToolFilter::from_cli(toolsets, tools.as_deref());
                 match init_tfmcp(&cli).await {
                     Ok(tfmcp) => {
-                        if let Err(err) = TfMcpServer::serve_stdio(tfmcp, tool_filter).await {
-                            logging::error(&format!("Error launching MCP server: {:?}", err));
+                        let result = match TransportMode::from_env() {
+                            Ok(TransportMode::Stdio) => {
+                                TfMcpServer::serve_stdio(tfmcp, tool_filter).await
+                            }
+                            Ok(TransportMode::StreamableHttp) => {
+                                match HttpTransportConfig::from_env() {
+                                    Ok(config) => {
+                                        TfMcpServer::serve_streamable_http(
+                                            tfmcp,
+                                            tool_filter,
+                                            config,
+                                        )
+                                        .await
+                                    }
+                                    Err(err) => Err(err),
+                                }
+                            }
+                            Err(err) => Err(err),
+                        };
+
+                        if let Err(err) = result {
+                            logging::error(&format!("Error launching MCP server: {err:?}"));
                             std::process::exit(1);
                         }
                     }
                     Err(e) => {
-                        logging::error(&format!("Failed to initialize tfmcp: {}", e));
+                        logging::error(&format!("Failed to initialize tfmcp: {e}"));
                         std::process::exit(1);
                     }
                 }
@@ -97,12 +109,12 @@ async fn main() {
                 match init_tfmcp(&cli).await {
                     Ok(mut tfmcp) => {
                         if let Err(err) = tfmcp.analyze_terraform().await {
-                            logging::error(&format!("Error analyzing Terraform: {:?}", err));
+                            logging::error(&format!("Error analyzing Terraform: {err:?}"));
                             std::process::exit(1);
                         }
                     }
                     Err(e) => {
-                        logging::error(&format!("Failed to initialize tfmcp: {}", e));
+                        logging::error(&format!("Failed to initialize tfmcp: {e}"));
                         std::process::exit(1);
                     }
                 }
@@ -120,8 +132,7 @@ async fn init_tfmcp(cli: &Cli) -> anyhow::Result<TfMcp> {
     let dir_path = cli.dir.clone();
 
     logging::info(&format!(
-        "Initializing tfmcp with config: {:?}, dir: {:?}",
-        config_path, dir_path
+        "Initializing tfmcp with config: {config_path:?}, dir: {dir_path:?}"
     ));
     TfMcp::new(config_path, dir_path)
 }
@@ -143,7 +154,7 @@ fn init_logging() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| format!("tfmcp={},reqwest=warn,hyper=warn", filter).into()),
+                .unwrap_or_else(|_| format!("tfmcp={filter},reqwest=warn,hyper=warn").into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

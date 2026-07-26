@@ -81,8 +81,7 @@ impl std::str::FromStr for GraphType {
             "plan" => Ok(GraphType::Plan),
             "apply" => Ok(GraphType::Apply),
             _ => Err(anyhow::anyhow!(
-                "Unknown graph type: {}. Valid types: plan, apply",
-                s
+                "Unknown graph type: {s}. Valid types: plan, apply"
             )),
         }
     }
