@@ -286,14 +286,21 @@ fn should_skip_dir(path: &Path) -> bool {
 }
 
 fn is_module_path(relative_path: &str) -> bool {
-    relative_path == "modules" || relative_path.starts_with("modules/")
+    relative_path == "modules"
+        || relative_path.starts_with("modules/")
+        || relative_path.starts_with(r"modules\")
 }
 
 fn relative_path(root: &Path, dir: &Path) -> String {
     dir.strip_prefix(root)
         .ok()
         .filter(|path| !path.as_os_str().is_empty())
-        .map(|path| path.to_string_lossy().to_string())
+        .map(|path| {
+            path.components()
+                .map(|component| component.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
         .unwrap_or_else(|| ".".to_string())
 }
 
@@ -358,6 +365,13 @@ output "vpc_id" {}
         assert_eq!(inspection.total_tf_files, 0);
         assert!(inspection.entrypoints.is_empty());
         assert_eq!(inspection.warnings, vec!["No Terraform files found"]);
+    }
+
+    #[test]
+    fn module_paths_accept_platform_separators() {
+        assert!(is_module_path("modules/network"));
+        assert!(is_module_path(r"modules\network"));
+        assert!(!is_module_path("examples/network"));
     }
 
     fn write_file(path: &Path, content: &str) {

@@ -64,10 +64,10 @@ jobs:
         run: cargo build --locked --all-features --verbose
 
       - name: Install cargo-coupling
-        run: cargo install cargo-coupling --version 0.3.7 --locked
+        run: cargo +stable install cargo-coupling --version 0.3.7 --locked
 
       - name: Install similarity-rs
-        run: cargo install similarity-rs --version 0.5.0 --locked
+        run: cargo +stable install similarity-rs --version 0.5.0 --locked
 
       - name: Check module coupling
         run: cargo coupling --check --min-grade B --max-critical 0 --max-circular 0 --fail-on high --max-deps 40
