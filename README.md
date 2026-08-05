@@ -1,5 +1,7 @@
 # tfmcp: Terraform Model Context Protocol Tool
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fnwiizo%2Ftfmcp.svg)](https://mcptoplist.com/server/glama%2Fnwiizo%2Ftfmcp)
+
 [![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/nwiizo/tfmcp)](https://archestra.ai/mcp-catalog/nwiizo__tfmcp)
 
 *⚠️  This project includes production-ready security features but is still under active development. While the security system provides robust protection, please review all operations carefully in production environments. ⚠️*
