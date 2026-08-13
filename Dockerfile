@@ -1,4 +1,4 @@
-FROM rust:1.88.0-slim-bullseye AS builder
+FROM rust:1.97.1-slim-bullseye AS builder
 
 ARG TERRAFORM_VERSION="1.15.8"
 
