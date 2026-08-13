@@ -19,6 +19,16 @@ All notable changes to tfmcp are documented in this file.
 - Pin third-party GitHub Actions to immutable commit SHAs, minimize token
   permissions, cancel stale CI runs, and enable grouped Dependabot updates.
 - Add a repository-managed pre-commit hook for quick, change-aware local checks.
+- Update the locked Rust dependency graph, including RMCP 3.1.2, and adopt the
+  current compatible major releases of `axum-server`, `tower-http`, and `which`
+  without raising the Rust 1.88 MSRV.
+- Build containers from digest-pinned Rust 1.97.1 and Debian Trixie images,
+  download Terraform once in an architecture-aware stage, and keep download
+  utilities out of the final image.
+- Move Windows compatibility checks to the explicit Windows Server 2025 runner;
+  Ubuntu 24.04 and macOS 15 remain the stable explicit runner baselines.
+- Make manual OCI runs non-publishing by default so container changes can be
+  validated on native multi-platform runners without lengthening routine CI.
 
 ## [0.2.2] - 2026-08-13
 

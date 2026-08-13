@@ -38,13 +38,13 @@ reqwest = { version = "0.13", default-features = false, features = [
   "rustls",
   "stream",
 ] }
-which = "6.0"
+which = "8.0"
 chrono = { version = "0.4", features = ["serde"] }
 # Logging improvements
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # MCP SDK
-rmcp = { version = "3.0.1", features = [
+rmcp = { version = "3.1.2", features = [
   "server",
   "transport-io",
   "transport-streamable-http-server",
@@ -55,12 +55,12 @@ axum = { version = "0.8", default-features = false, features = [
   "json",
   "tokio",
 ] }
-axum-server = { version = "0.7", features = ["tls-rustls"] }
-tower-http = { version = "0.6", features = ["cors"] }
+axum-server = { version = "0.8", features = ["tls-rustls"] }
+tower-http = { version = "0.7", features = ["cors"] }
 
 [dev-dependencies]
 tempfile = "3.27"
-rmcp = { version = "3.0.1", features = [
+rmcp = { version = "3.1.2", features = [
   "server",
   "client",
   "transport-io",

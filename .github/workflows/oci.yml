@@ -8,8 +8,13 @@ on:
     inputs:
       version:
         description: Existing release version to rebuild, without the v prefix
-        required: true
+        required: false
         type: string
+      publish:
+        description: Publish an existing release after validating its tagged inputs
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -25,6 +30,7 @@ jobs:
     timeout-minutes: 2
     outputs:
       revision: ${{ steps.release.outputs.revision }}
+      publish: ${{ steps.release.outputs.publish }}
       version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,31 +41,77 @@ jobs:
       - name: Validate release source
         id: release
         env:
+          MANUAL_PUBLISH: ${{ inputs.publish }}
           MANUAL_VERSION: ${{ inputs.version }}
         run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            if [[ ! "${MANUAL_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "error: version must look like 0.2.2" >&2
-              exit 1
-            fi
+          source_version=$(awk -F'"' '/^version = / { print $2; exit }' Cargo.toml)
 
-            release_ref="v${MANUAL_VERSION}"
-            git rev-parse --verify "${release_ref}^{commit}" >/dev/null
-            git diff --quiet "${release_ref}^{commit}" HEAD -- \
-              Cargo.toml Cargo.lock rust-toolchain.toml build.rs src example Dockerfile
-            version="${MANUAL_VERSION}"
-            revision=$(git rev-parse "${release_ref}^{commit}")
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            if [[ "${MANUAL_PUBLISH}" == "true" ]]; then
+              if [[ ! "${MANUAL_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "error: a published version must look like 0.2.2" >&2
+                exit 1
+              fi
+
+              release_ref="v${MANUAL_VERSION}"
+              git rev-parse --verify "${release_ref}^{commit}" >/dev/null
+              git diff --quiet "${release_ref}^{commit}" HEAD -- \
+                Cargo.toml Cargo.lock rust-toolchain.toml build.rs src example Dockerfile
+              version="${MANUAL_VERSION}"
+              revision=$(git rev-parse "${release_ref}^{commit}")
+            else
+              version="${source_version}"
+              revision="${GITHUB_SHA}"
+            fi
+            publish="${MANUAL_PUBLISH}"
           else
             version="${GITHUB_REF_NAME#v}"
             revision="${GITHUB_SHA}"
+            publish="true"
           fi
 
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
-          echo "revision=${revision}" >> "${GITHUB_OUTPUT}"
+          if [[ "${version}" != "${source_version}" ]]; then
+            echo "error: release version ${version} does not match Cargo.toml ${source_version}" >&2
+            exit 1
+          fi
 
-  build:
+          {
+            echo "publish=${publish}"
+            echo "version=${version}"
+            echo "revision=${revision}"
+          } >> "${GITHUB_OUTPUT}"
+
+  verify:
+    name: Build without publishing
+    needs: prepare
+    if: needs.prepare.outputs.publish != 'true'
+    uses: docker/github-builder/.github/workflows/build.yml@a492c6d04fd3315f67230809b44d60cc0acd50b3 # v1.16.0
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      output: image
+      push: false
+      platforms: linux/amd64,linux/arm64
+      meta-images: ghcr.io/nwiizo/tfmcp
+      meta-tags: |
+        type=semver,pattern={{version}},value=${{ needs.prepare.outputs.version }}
+        type=semver,pattern={{major}}.{{minor}},value=${{ needs.prepare.outputs.version }}
+        type=raw,value=latest
+      build-args: |
+        TFMCP_VERSION=${{ needs.prepare.outputs.version }}
+        TFMCP_REVISION=${{ needs.prepare.outputs.revision }}
+      cache: true
+      cache-mode: max
+      sbom: true
+      sign: "false"
+      set-meta-labels: true
+      set-meta-annotations: true
+
+  publish:
     name: Build and publish
     needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
     uses: docker/github-builder/.github/workflows/build.yml@a492c6d04fd3315f67230809b44d60cc0acd50b3 # v1.16.0
     permissions:
       contents: read

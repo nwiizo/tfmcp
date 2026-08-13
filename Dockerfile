@@ -1,22 +1,4 @@
-FROM rust:1.88.0-slim-bullseye AS builder
-
-ARG TERRAFORM_VERSION="1.15.8"
-
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Terraform using direct download method (works for any architecture)
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then TERRAFORM_ARCH="amd64"; \
-    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then TERRAFORM_ARCH="arm64"; \
-    else TERRAFORM_ARCH="$ARCH"; fi && \
-    curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${TERRAFORM_ARCH}.zip" -o terraform.zip && \
-    unzip terraform.zip && \
-    mv terraform /usr/local/bin/ && \
-    rm terraform.zip
+FROM rust:1.97.1-slim-trixie@sha256:8e8cf8f7fd54a2d23d5a743b3a03f56e26b6c774276c33fa0595111704ebb15c AS builder
 
 WORKDIR /app
 
@@ -37,10 +19,27 @@ COPY example/ example/
 # Rebuild with the actual source code
 RUN cargo build --release --locked
 
-# Create the runtime image
-FROM debian:bullseye-slim
+FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258 AS terraform
 
+ARG TARGETARCH
 ARG TERRAFORM_VERSION="1.15.8"
+
+# Package versions are fixed by the immutable base-image digest; allow security
+# updates when Dependabot refreshes that digest.
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    unzip \
+    && case "${TARGETARCH}" in amd64|arm64) ;; *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; esac \
+    && curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${TARGETARCH}.zip" -o terraform.zip \
+    && unzip terraform.zip -d /opt/terraform \
+    && rm terraform.zip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create the runtime image
+FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
+
 ARG TFMCP_VERSION="0.2.2"
 ARG TFMCP_REVISION="unknown"
 
@@ -51,31 +50,22 @@ LABEL io.modelcontextprotocol.server.name="io.github.nwiizo/tfmcp" \
     org.opencontainers.image.version="${TFMCP_VERSION}" \
     org.opencontainers.image.revision="${TFMCP_REVISION}"
 
-# Install dependencies for runtime
-RUN apt-get update && apt-get install -y \
-    curl \
-    unzip \
+# Keep only the runtime trust store; download tools stay in the Terraform stage.
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Terraform using direct download method (works for any architecture)
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then TERRAFORM_ARCH="amd64"; \
-    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then TERRAFORM_ARCH="arm64"; \
-    else TERRAFORM_ARCH="$ARCH"; fi && \
-    curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${TERRAFORM_ARCH}.zip" -o terraform.zip && \
-    unzip terraform.zip && \
-    mv terraform /usr/local/bin/ && \
-    rm terraform.zip
 
 WORKDIR /app
 
 # Copy the built binary from the builder stage
 COPY --from=builder /app/target/release/tfmcp /usr/local/bin/tfmcp
 COPY --from=builder /app/example /app/example
+COPY --from=terraform /opt/terraform/terraform /usr/local/bin/terraform
 
 # Set environment variables
 ENV RUST_LOG=info
 
 # Set the entrypoint
 ENTRYPOINT ["tfmcp"]
-CMD ["mcp"] 
+CMD ["mcp"]
