@@ -38,7 +38,7 @@ reqwest = { version = "0.13", default-features = false, features = [
   "rustls",
   "stream",
 ] }
-which = "6.0"
+which = "8.0"
 chrono = { version = "0.4", features = ["serde"] }
 # Logging improvements
 tracing = "0.1"
