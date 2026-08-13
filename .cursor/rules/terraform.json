@@ -2,7 +2,7 @@
   "description": "Rules for Terraform files in the project",
   "include": ["**/*.tf", "**/*.tfvars", "**/*.hcl"],
   "rules": [
-    "Use Terraform 1.11.1 for this project.",
+    "Use Terraform 1.15.8 for this project.",
     "Follow HCL formatting best practices.",
     "Document resource blocks with meaningful comments.",
     "Use variables for reusable values.",
@@ -26,4 +26,4 @@
   "references": {
     "files": [".terraform-version"]
   }
-} 
+}

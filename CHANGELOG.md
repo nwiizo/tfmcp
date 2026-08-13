@@ -27,6 +27,8 @@ All notable changes to tfmcp are documented in this file.
   utilities out of the final image.
 - Align the root and example Terraform version files with Terraform 1.15.8,
   matching CI and container builds.
+- Refresh the embedded Terraform GitHub Actions example with an explicit runner,
+  read-only permissions, full action SHAs, and Terraform 1.15.8.
 - Move Windows compatibility checks to the explicit Windows Server 2025 runner;
   Ubuntu 24.04 and macOS 15 remain the stable explicit runner baselines.
 - Make manual OCI runs non-publishing by default so container changes can be

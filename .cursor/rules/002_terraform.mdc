@@ -7,7 +7,7 @@ alwaysApply: false
 # Terraform Standards
 
 ## Version Support
-- Target Terraform 1.11.1 as the primary supported version.
+- Target Terraform 1.15.8 as the primary supported version.
 - Ensure backward compatibility with Terraform 1.0+ when possible.
 - Test with multiple Terraform versions for compatibility.
 
@@ -33,4 +33,3 @@ alwaysApply: false
 - Maintain example/ directory with good Terraform examples.
 - Ensure the demo environment is self-contained and works out of the box.
 - Keep example/ code up to date with best practices. 
-

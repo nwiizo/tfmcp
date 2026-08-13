@@ -4,7 +4,7 @@
   "rules": [
     "When working on this project, consider the Terraform Model Context Protocol design principles.",
     "Always follow the Rust coding style guidelines.",
-    "This project uses Terraform 1.11.1 for compatibility with the latest features."
+    "This project uses Terraform 1.15.8 for compatibility with the latest features."
   ],
   "commands": {
     "tfmcp:release": {
@@ -48,4 +48,4 @@
     "trimTrailingWhitespace": true,
     "insertFinalNewline": true
   }
-} 
+}

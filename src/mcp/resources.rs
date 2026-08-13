@@ -464,12 +464,19 @@ terraform apply -parallelism=20
 name: Terraform
 on: [push, pull_request]
 
+permissions:
+  contents: read
+
 jobs:
   terraform:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v3
-      - uses: hashicorp/setup-terraform@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.15.8"
       - run: terraform fmt -check
       - run: terraform init
       - run: terraform validate
