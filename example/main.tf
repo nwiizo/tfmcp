@@ -41,7 +41,7 @@ resource "local_file" "example" {
 # ローカルディレクトリを作成
 resource "local_file" "config_file" {
   filename = "${path.module}/config/${random_pet.server.id}.json"
-  content  = jsonencode({
+  content = jsonencode({
     name     = random_pet.server.id
     priority = random_integer.priority.result
     created  = timestamp()
@@ -58,15 +58,15 @@ resource "local_file" "config_file" {
 module "environments" {
   source = "./modules/local_resources"
   count  = length(local.environments)
-  
+
   name_length = var.pet_length
   prefix      = local.environments[count.index]
   output_dir  = "${path.module}/environments/${local.environments[count.index]}"
-  
+
   tags = merge(var.tags, {
     Environment = local.environments[count.index]
   })
-  
+
   metadata = {
     description = "リソース for ${local.environments[count.index]} 環境"
     created_by  = "tfmcp"
@@ -77,11 +77,11 @@ module "environments" {
 # マスターリソースを作成
 module "master" {
   source = "./modules/local_resources"
-  
+
   name_length = 2
   prefix      = "master"
   output_dir  = "${path.module}/master"
-  
+
   tags = var.tags
   metadata = {
     is_master  = "true"

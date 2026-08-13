@@ -5,14 +5,14 @@ resource "random_pet" "name" {
 }
 
 resource "local_file" "config" {
-  content  = jsonencode({
+  content = jsonencode({
     name       = random_pet.name.id
     created_at = timestamp()
     tags       = var.tags
     metadata   = var.metadata
   })
   filename = "${var.output_dir}/${random_pet.name.id}.json"
-  
+
   provisioner "local-exec" {
     command = "mkdir -p ${var.output_dir}"
   }

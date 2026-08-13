@@ -25,6 +25,8 @@ All notable changes to tfmcp are documented in this file.
 - Build containers from digest-pinned Rust 1.97.1 and Debian Trixie images,
   download Terraform once in an architecture-aware stage, and keep download
   utilities out of the final image.
+- Align the root and example Terraform version files with Terraform 1.15.8,
+  matching CI and container builds.
 - Move Windows compatibility checks to the explicit Windows Server 2025 runner;
   Ubuntu 24.04 and macOS 15 remain the stable explicit runner baselines.
 - Make manual OCI runs non-publishing by default so container changes can be

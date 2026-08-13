@@ -23,7 +23,7 @@ variable "priority_max" {
 variable "tags" {
   description = "リソースに追加するタグ"
   type        = map(string)
-  default     = {
+  default = {
     Environment = "development"
     Project     = "tfmcp-demo"
     Owner       = "tfmcp-user"
