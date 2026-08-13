@@ -4,11 +4,22 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*.*.*'
+    paths-ignore:
+      - "**/*.md"
+      - LICENSE
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - "**/*.md"
+      - LICENSE
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -18,35 +29,44 @@ env:
 jobs:
   msrv:
     name: Rust 1.88 MSRV
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install minimum supported Rust
-        uses: dtolnay/rust-toolchain@1.88.0
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: 1.88.0
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Check minimum supported Rust
         run: cargo check --locked --all-targets --all-features
 
   check:
     name: Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
+          toolchain: stable
           components: rustfmt, clippy
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Install Terraform
-        uses: hashicorp/setup-terraform@v4
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: "1.15.8"
           terraform_wrapper: false
@@ -58,146 +78,34 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo test --locked --all-features --verbose
-
-      - name: Build
-        run: cargo build --locked --all-features --verbose
-
-      - name: Install cargo-coupling
-        run: cargo +stable install cargo-coupling --version 0.3.7 --locked
-
-      - name: Install similarity-rs
-        run: cargo +stable install similarity-rs --version 0.5.0 --locked
-
-      - name: Check module coupling
-        run: cargo coupling --check --min-grade B --max-critical 0 --max-circular 0 --fail-on high --max-deps 40
-
-      - name: Check duplicate Rust functions
-        run: similarity-rs src --skip-test --threshold 0.90 --min-lines 8 --fail-on-duplicates
+        run: cargo test --locked --all-targets --all-features --verbose
 
       - name: Validate MCP Registry metadata
         run: jq . server.json
 
       - name: List package contents
-        run: cargo package --list --locked --allow-dirty
-
-      - name: Publish dry run
-        run: cargo publish --dry-run --locked --allow-dirty
+        run: cargo package --list --locked
 
   test-platform:
-    name: Test on ${{ matrix.os }}
+    name: Compile on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [windows-2022, macos-15]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
-          components: rustfmt, clippy
+          toolchain: stable
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
-      - name: Install Terraform
-        uses: hashicorp/setup-terraform@v4
-        with:
-          terraform_version: "1.15.8"
-          terraform_wrapper: false
-
-      - name: Test
-        run: cargo test --locked --all-features
-
-  security:
-    name: Security audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --version 0.22.2 --locked
-
-      - name: Run security audit
-        run: cargo audit
-
-  coverage:
-    name: Code coverage
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
-
-      - name: Install cargo-llvm-cov
-        run: |
-          curl -LsSf https://github.com/taiki-e/cargo-llvm-cov/releases/latest/download/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz | tar xzf - -C ~/.cargo/bin
-
-      - name: Generate code coverage
-        run: cargo llvm-cov --lcov --output-path lcov.info
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          files: ./lcov.info
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-  container:
-    name: Publish OCI image
-    runs-on: ubuntu-latest
-    needs: [msrv, check, test-platform, security]
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract OCI metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/nwiizo/tfmcp
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
-
-      - name: Build and publish OCI image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            TFMCP_VERSION=${{ steps.meta.outputs.version }}
-            TFMCP_REVISION=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Verify versioned image
-        run: docker buildx imagetools inspect "ghcr.io/nwiizo/tfmcp:${GITHUB_REF_NAME#v}"
+      - name: Compile
+        run: cargo check --locked --all-targets --all-features

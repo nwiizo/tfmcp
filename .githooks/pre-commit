@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
+if [ -z "$staged_files" ]; then
+    exit 0
+fi
+
+git diff --cached --check
+
+if printf '%s\n' "$staged_files" | grep -Eq '(^|/)(Cargo\.(toml|lock)|build\.rs|[^/]+\.rs)$'; then
+    cargo fmt --all -- --check
+
+    if command -v cargo-coupling >/dev/null 2>&1; then
+        cargo coupling --check --min-grade B --max-critical 0 --max-circular 0 --fail-on high --max-deps 40
+    else
+        echo "note: cargo-coupling is not installed; skipping the local architecture check" >&2
+    fi
+
+    if command -v similarity-rs >/dev/null 2>&1; then
+        similarity-rs src --skip-test --threshold 0.90 --min-lines 8 --fail-on-duplicates
+    else
+        echo "note: similarity-rs is not installed; skipping the local duplicate check" >&2
+    fi
+fi
+
+if printf '%s\n' "$staged_files" | grep -Eq '^\.github/workflows/.*\.ya?ml$'; then
+    if command -v actionlint >/dev/null 2>&1; then
+        actionlint
+    else
+        echo "note: actionlint is not installed; skipping workflow lint" >&2
+    fi
+fi
+
+if printf '%s\n' "$staged_files" | grep -Fxq 'server.json'; then
+    jq empty server.json
+fi

@@ -2,6 +2,23 @@
 
 All notable changes to tfmcp are documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Keep routine Rust CI on the shortest useful path by removing duplicate Linux
+  builds, non-blocking coverage upload, publish dry-runs, and heuristic
+  architecture scans from every push.
+- Compile-check Windows and macOS while retaining the complete test suite on
+  Linux; release packaging, audit, coupling, and duplicate checks remain in the
+  local release gate.
+- Run RustSec audits on dependency changes and weekly schedules, and publish
+  multi-platform OCI images in a tag-only workflow on native AMD64 and ARM64
+  runners.
+- Pin third-party GitHub Actions to immutable commit SHAs, minimize token
+  permissions, cancel stale CI runs, and enable grouped Dependabot updates.
+- Add a repository-managed pre-commit hook for quick, change-aware local checks.
+
 ## [0.2.2] - 2026-08-13
 
 v0.2.2 updates tfmcp to RMCP 3.0.1 and aligns its advertised MCP surface with

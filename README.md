@@ -411,15 +411,25 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Run quality checks before committing:
+3. Enable the repository-managed fast pre-commit checks once per clone:
    ```bash
-   cargo fmt --all
-   cargo clippy --all-targets --all-features
-   cargo test --all-features
+   git config core.hooksPath .githooks
    ```
-4. Commit your changes (`git commit -m 'Add some amazing feature'`)
-5. Push to the branch (`git push origin feature/amazing-feature`)
-6. Open a Pull Request
+4. Run the full correctness checks before pushing:
+   ```bash
+   cargo fmt --all -- --check
+   cargo clippy --all-targets --all-features -- -D warnings
+   cargo test --locked --all-targets --all-features
+   ```
+5. Commit your changes (`git commit -m 'Add some amazing feature'`)
+6. Push to the branch (`git push origin feature/amazing-feature`)
+7. Open a Pull Request
+
+The pre-commit hook always checks staged whitespace and conditionally runs
+`cargo fmt`, `actionlint`, Registry metadata validation, module coupling, and
+duplicate-code checks for affected files. The optional architecture tools are
+still mandatory in `Release.sh`; install `cargo-coupling` and `similarity-rs`
+to run the same fast feedback while developing.
 
 ### Release Process
 

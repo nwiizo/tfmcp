@@ -216,7 +216,7 @@ if [[ "$MODE" == "--publish" ]]; then
     create_github_release
     echo
     echo "Release $VERSION published to crates.io and GitHub."
-    echo "The tag-triggered Rust CI workflow publishes and verifies the multi-platform GHCR image."
+    echo "The tag-triggered OCI workflow publishes the signed multi-platform GHCR image."
 else
     echo
     echo "Dry-run release gate passed for $VERSION."
