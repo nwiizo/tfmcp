@@ -54,7 +54,6 @@ async fn test_mcp_initialize_response() -> Result<()> {
         let expected_capabilities = json!({
             "capabilities": {
                 "experimental": {},
-                "prompts": { "listChanged": false },
                 "resources": { "listChanged": false, "subscribe": false },
                 "tools": { "listChanged": false }
             },
@@ -85,7 +84,6 @@ async fn test_mcp_initialize_response() -> Result<()> {
                 let expected_capabilities = json!({
                     "capabilities": {
                         "experimental": {},
-                        "prompts": { "listChanged": false },
                         "resources": { "listChanged": false, "subscribe": false },
                         "tools": { "listChanged": false }
                     },
@@ -296,7 +294,6 @@ async fn test_rmcp_server_initialization_flow() -> Result<()> {
         let init_result = serde_json::json!({
             "protocolVersion": "2025-03-26",
             "capabilities": {
-                "prompts": {},
                 "resources": {},
                 "tools": {}
             },
@@ -534,11 +531,10 @@ async fn test_mcp_server_capabilities() -> Result<()> {
     if is_ci_environment() {
         // In CI, verify capability structure via JSON
         let capabilities = json!({
-            "prompts": {},
             "resources": {},
             "tools": {}
         });
-        assert!(capabilities["prompts"].is_object());
+        assert!(capabilities.get("prompts").is_none());
         assert!(capabilities["resources"].is_object());
         assert!(capabilities["tools"].is_object());
         return Ok(());
@@ -561,8 +557,8 @@ async fn test_mcp_server_capabilities() -> Result<()> {
             "Server should have resources capability"
         );
         assert!(
-            init_result.capabilities.prompts.is_some(),
-            "Server should have prompts capability"
+            init_result.capabilities.prompts.is_none(),
+            "Server should not advertise unimplemented prompts"
         );
 
         // Verify server info

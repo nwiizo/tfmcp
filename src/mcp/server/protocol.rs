@@ -1,83 +1,66 @@
 //! MCP protocol metadata, resources, and request dispatch.
 
-use super::{McpError, TfMcpServer};
+use super::{MCP_CACHE_TTL_MS, McpError, TfMcpServer};
 use crate::mcp::resources::{
     SERVER_INSTRUCTIONS, TERRAFORM_BEST_PRACTICES, get_module_dev_content, get_style_guide_content,
 };
 use rmcp::{
     ServerHandler,
     model::{
-        Annotated, CallToolRequestParams, CallToolResult, Implementation,
+        CacheScope, CallToolRequestParams, CallToolResponse, Implementation,
         ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
-        RawResource, RawResourceTemplate, ReadResourceRequestParams, ReadResourceResult,
-        ResourceContents, ServerCapabilities, ServerInfo,
+        ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
+        ResourceContents, ResourceTemplate, ServerCapabilities, ServerInfo,
     },
     service::{RequestContext, RoleServer},
 };
 use std::future::Future;
 
-fn terraform_resources() -> Vec<Annotated<RawResource>> {
+fn terraform_resources() -> Vec<Resource> {
     vec![
-        Annotated::new(
-            RawResource::new("terraform://style-guide", "Terraform Style Guide")
-                .with_description("Best practices for HCL formatting and code style")
-                .with_mime_type("text/markdown"),
-            None,
-        ),
-        Annotated::new(
-            RawResource::new("/terraform/style-guide", "Terraform Style Guide")
-                .with_description("HashiCorp-compatible Terraform style guide resource alias")
-                .with_mime_type("text/markdown"),
-            None,
-        ),
-        Annotated::new(
-            RawResource::new("terraform://module-development", "Module Development Guide")
-                .with_description("Guide for developing reusable Terraform modules")
-                .with_mime_type("text/markdown"),
-            None,
-        ),
-        Annotated::new(
-            RawResource::new("/terraform/module-development", "Module Development Guide")
-                .with_description("HashiCorp-compatible module development resource alias")
-                .with_mime_type("text/markdown"),
-            None,
-        ),
-        Annotated::new(
-            RawResource::new("terraform://best-practices", "Terraform Best Practices")
-                .with_description("Security and operational best practices")
-                .with_mime_type("text/markdown"),
-            None,
-        ),
+        Resource::new("terraform://style-guide", "Terraform Style Guide")
+            .with_description("Best practices for HCL formatting and code style")
+            .with_mime_type("text/markdown"),
+        Resource::new("/terraform/style-guide", "Terraform Style Guide")
+            .with_description("HashiCorp-compatible Terraform style guide resource alias")
+            .with_mime_type("text/markdown"),
+        Resource::new("terraform://module-development", "Module Development Guide")
+            .with_description("Guide for developing reusable Terraform modules")
+            .with_mime_type("text/markdown"),
+        Resource::new("/terraform/module-development", "Module Development Guide")
+            .with_description("HashiCorp-compatible module development resource alias")
+            .with_mime_type("text/markdown"),
+        Resource::new("terraform://best-practices", "Terraform Best Practices")
+            .with_description("Security and operational best practices")
+            .with_mime_type("text/markdown"),
     ]
 }
 
-fn terraform_resource_templates() -> Vec<Annotated<RawResourceTemplate>> {
+fn terraform_resource_templates() -> Vec<ResourceTemplate> {
     vec![
-        Annotated::new(
-            RawResourceTemplate::new(
-                "terraform://providers/{namespace}/{name}/{version}/docs",
-                "Provider Documentation",
-            )
-            .with_description("Fetch documentation for a specific Terraform provider version"),
-            None,
-        ),
-        Annotated::new(
-            RawResourceTemplate::new(
-                "/terraform/providers/{namespace}/name/{name}/version/{version}",
-                "Provider Documentation",
-            )
-            .with_description("HashiCorp-compatible provider documentation resource template"),
-            None,
-        ),
+        ResourceTemplate::new(
+            "terraform://providers/{namespace}/{name}/{version}/docs",
+            "Provider Documentation",
+        )
+        .with_description("Fetch documentation for a specific Terraform provider version"),
+        ResourceTemplate::new(
+            "/terraform/providers/{namespace}/name/{name}/version/{version}",
+            "Provider Documentation",
+        )
+        .with_description("HashiCorp-compatible provider documentation resource template"),
     ]
 }
 
 fn list_resources_result() -> ListResourcesResult {
     ListResourcesResult::with_all_items(terraform_resources())
+        .with_ttl_ms(MCP_CACHE_TTL_MS)
+        .with_cache_scope(CacheScope::Public)
 }
 
 fn list_resource_templates_result() -> ListResourceTemplatesResult {
     ListResourceTemplatesResult::with_all_items(terraform_resource_templates())
+        .with_ttl_ms(MCP_CACHE_TTL_MS)
+        .with_cache_scope(CacheScope::Public)
 }
 
 // The ServerHandler trait requires this specific impl Future pattern.
@@ -87,7 +70,6 @@ impl ServerHandler for TfMcpServer {
         let capabilities = ServerCapabilities::builder()
             .enable_tools()
             .enable_resources()
-            .enable_prompts()
             .build();
         let server_info = Implementation::new("tfmcp", env!("CARGO_PKG_VERSION"));
         ServerInfo::new(capabilities)
@@ -115,7 +97,7 @@ impl ServerHandler for TfMcpServer {
         &self,
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<ReadResourceResult, McpError>> + Send + '_ {
+    ) -> impl Future<Output = Result<ReadResourceResponse, McpError>> + Send + '_ {
         async move {
             let provider_path = if request.uri.starts_with("terraform://providers/")
                 && request.uri.ends_with("/docs")
@@ -182,7 +164,10 @@ impl ServerHandler for TfMcpServer {
                             return Ok(ReadResourceResult::new(vec![ResourceContents::text(
                                 content,
                                 request.uri,
-                            )]));
+                            )])
+                            .with_ttl_ms(MCP_CACHE_TTL_MS)
+                            .with_cache_scope(CacheScope::Public)
+                            .into());
                         }
                         Err(error) => {
                             return Err(McpError::resource_not_found(
@@ -210,10 +195,12 @@ impl ServerHandler for TfMcpServer {
                 }
             };
 
-            Ok(ReadResourceResult::new(vec![ResourceContents::text(
-                content,
-                request.uri,
-            )]))
+            Ok(
+                ReadResourceResult::new(vec![ResourceContents::text(content, request.uri)])
+                    .with_ttl_ms(MCP_CACHE_TTL_MS)
+                    .with_cache_scope(CacheScope::Public)
+                    .into(),
+            )
         }
     }
 
@@ -229,7 +216,7 @@ impl ServerHandler for TfMcpServer {
         &self,
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<CallToolResult, McpError>> + Send + '_ {
+    ) -> impl Future<Output = Result<CallToolResponse, McpError>> + Send + '_ {
         async move {
             if !self.tool_filter.is_enabled(&request.name) {
                 return Err(McpError::invalid_request(

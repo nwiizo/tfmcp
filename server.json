@@ -7,11 +7,11 @@
     "url": "https://github.com/nwiizo/tfmcp",
     "source": "github"
   },
-  "version": "0.2.1",
+  "version": "0.2.2",
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/nwiizo/tfmcp:0.2.1",
+      "identifier": "ghcr.io/nwiizo/tfmcp:0.2.2",
       "transport": {
         "type": "stdio"
       },

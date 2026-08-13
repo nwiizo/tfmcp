@@ -2,6 +2,34 @@
 
 All notable changes to tfmcp are documented in this file.
 
+## [0.2.2] - 2026-08-13
+
+v0.2.2 updates tfmcp to RMCP 3.0.1 and aligns its advertised MCP surface with
+the stable 2026-07-28 protocol while preserving older client compatibility.
+
+### Added
+
+- MCP 2026-07-28 server discovery and per-request protocol negotiation through
+  RMCP's modern lifecycle.
+- Structured JSON content for successful JSON-returning tools while retaining
+  the existing text content for clients that consume it.
+- Five-minute public cache hints on tool, resource, resource-template, and
+  resource-read results.
+
+### Changed
+
+- Updated RMCP from 1.8 to 3.0.1 and migrated handler response, resource, and
+  Streamable HTTP configuration types to the RMCP 3.x API.
+- Serve MCP 2026-07-28 Streamable HTTP requests without protocol-level
+  sessions, including when legacy session mode is configured.
+- Stop advertising prompt support because tfmcp does not implement prompt
+  retrieval; tools and resources remain the supported guidance surfaces.
+- Validate MCP 2026-07-28 discovery, result discriminators, cache hints,
+  structured tool results, capability metadata, and sessionless HTTP behavior
+  in end-to-end tests.
+- Reduce the crates.io package by excluding repository-only agent and CI
+  assets, and remove duplicate package verification from release automation.
+
 ## [0.2.1] - 2026-07-26
 
 v0.2.1 consolidates the completed v0.2.x work into one stable release while
@@ -61,4 +89,5 @@ The compatible surface includes `get_plan_json_output`, `get_apply_logs`,
 beyond API mirroring: local Terraform CLI workflows, entrypoint detection,
 module health analysis, state safety checks, and local dangerous-operation gates.
 
+[0.2.2]: https://github.com/nwiizo/tfmcp/releases/tag/v0.2.2
 [0.2.1]: https://github.com/nwiizo/tfmcp/releases/tag/v0.2.1

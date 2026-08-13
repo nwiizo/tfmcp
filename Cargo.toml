@@ -1,6 +1,6 @@
 [package]
 name = "tfmcp"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 authors = ["nwiizo <syu.m.5151@gmail.com>"]
 description = "Terraform Model Context Protocol Tool - A CLI tool to manage Terraform through MCP"
@@ -11,6 +11,7 @@ keywords = ["terraform", "mcp", "llm", "ai", "claude"]
 categories = ["command-line-utilities", "development-tools"]
 build = "build.rs"
 rust-version = "1.88.0"
+exclude = [".claude/**", ".cursor/**", ".github/**"]
 
 [lib]
 name = "tfmcp"
@@ -43,7 +44,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # MCP SDK
-rmcp = { version = "1.8", features = [
+rmcp = { version = "3.0.1", features = [
   "server",
   "transport-io",
   "transport-streamable-http-server",
@@ -59,7 +60,7 @@ tower-http = { version = "0.6", features = ["cors"] }
 
 [dev-dependencies]
 tempfile = "3.27"
-rmcp = { version = "1.8", features = [
+rmcp = { version = "3.0.1", features = [
   "server",
   "client",
   "transport-io",

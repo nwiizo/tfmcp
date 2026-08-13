@@ -10,7 +10,7 @@ tfmcp is a command-line tool that helps you interact with Terraform via the Mode
 
 See tfmcp in action with Claude Desktop:
 
-![tfmcp Demo with Claude Desktop](.github/images/tfmcp-demo.gif)
+![tfmcp Demo with Claude Desktop](https://raw.githubusercontent.com/nwiizo/tfmcp/main/.github/images/tfmcp-demo.gif)
 
 - Reading Terraform configuration files
 - Analyzing Terraform plan outputs
@@ -20,19 +20,19 @@ See tfmcp in action with Claude Desktop:
 
 ## 🎉 Current Release
 
-tfmcp v0.2.1 is the current release:
+tfmcp v0.2.2 is the current release:
 
 ```bash
-cargo install tfmcp --version 0.2.1
+cargo install tfmcp --version 0.2.2
 ```
 
-### What's new in v0.2.1
+### What's new in v0.2.2
 
-- HCP/TFE read coverage and explicitly gated write operations
-- Streamable HTTP with loopback-safe Host and Origin validation
-- Project inspection, plan review, lockfile checks, and state-safety workflows
-- Terraform 1.15.8 CI and container baseline
-- Rust module-boundary and duplicate-code release gates
+- RMCP 3.0.1 and MCP 2026-07-28 discovery support
+- Structured JSON tool results with backward-compatible text content
+- Five-minute public cache hints for tool and resource discovery
+- Sessionless Streamable HTTP behavior for MCP 2026-07-28 clients
+- Capability metadata aligned with the methods tfmcp implements
 
 ## Features
 
@@ -42,7 +42,7 @@ cargo install tfmcp --version 0.2.1
 | Repository intelligence | Entrypoint/project detection, configuration analysis, quality checks, security checks, module health, plan review, and drift/state-safety inspection |
 | Registry | Public/private provider, module, and policy lookup with HashiCorp-compatible aliases |
 | HCP Terraform / TFE | Organizations, projects, workspaces, runs, plans, applies, variables, policy sets, variable sets, tags, stacks, and gated operations |
-| MCP deployment | stdio and Streamable HTTP, toolsets, resources, health/metrics, sessions, Host/Origin validation, rate limits, TLS wiring, and audit logging |
+| MCP deployment | stdio and Streamable HTTP, MCP 2026-07-28 discovery, structured tool results, cache hints, toolsets, resources, health/metrics, sessions, Host/Origin validation, rate limits, TLS wiring, and audit logging |
 | Packaging | Cargo, Docker/OCI metadata, MCP Registry metadata, Rust Edition 2024 |
 
 ## Installation
@@ -310,7 +310,7 @@ Common issues and solutions:
 
 - **Claude can't connect to the server**: Make sure the path to the tfmcp executable is correct in your configuration
 - **Terraform project issues**: tfmcp automatically creates a sample Terraform project if none is found
-- **Method not found errors**: MCP protocol support includes resources/list and prompts/list methods
+- **Method not found errors**: tfmcp advertises and implements tools/list, resources/list, resources/templates/list, and resources/read
 - **Docker issues**: If using Docker, ensure your container has proper volume mounts and permissions
 
 ## Environment Variables
@@ -346,14 +346,14 @@ hidden; use `--toolsets operations` or `--toolsets all` to expose them.
 - `MCP_ENDPOINT`: Streamable HTTP MCP endpoint path (default: `/mcp`).
 - `MCP_HEALTH_ENDPOINT`: Health endpoint path (default: `/health`).
 - `MCP_METRICS_ENDPOINT`: OTel-compatible JSON metrics snapshot endpoint path (default: `/metrics`).
-- `MCP_SESSION_MODE`: `stateful` for normal MCP clients or `stateless` for CI-style JSON responses (default: `stateful`).
+- `MCP_SESSION_MODE`: `stateful` for normal MCP clients or `stateless` for CI-style JSON responses (default: `stateful`). Applies only to clients negotiating a protocol version before `2026-07-28`; that spec removed sessions, so those requests are always served statelessly.
 - `MCP_HEARTBEAT_INTERVAL`: Streamable HTTP SSE keep-alive interval in seconds. Set to `0` to disable (default: `15`).
 - `MCP_CORS_MODE`: Response CORS policy: `strict`, `development`, or `disabled` (default: `strict`). MCP request Origin validation remains enabled in all modes.
 - `MCP_ALLOWED_ORIGINS`: Comma-separated allowed browser origins. Loopback origins are used by default.
 - `MCP_ALLOWED_HOSTS`: Comma-separated HTTP `Host` / authority values accepted by Streamable HTTP. When unset, rmcp's loopback-only defaults apply.
 - `MCP_ORGANIZATION_ALLOWLIST`: Comma-separated HCP/TFE organization names that remote requests may access.
 - `MCP_RATE_LIMIT_GLOBAL`: Maximum HTTP requests per minute across the server (`0` or unset disables).
-- `MCP_RATE_LIMIT_SESSION`: Maximum HTTP requests per minute per `Mcp-Session-Id` (`0` or unset disables).
+- `MCP_RATE_LIMIT_SESSION`: Maximum HTTP requests per minute per `Mcp-Session-Id` (`0` or unset disables). Clients negotiating `2026-07-28` send no session header, so only `MCP_RATE_LIMIT_GLOBAL` bounds them.
 - `MCP_TLS_CERT_FILE`: PEM certificate file for HTTPS Streamable HTTP.
 - `MCP_TLS_KEY_FILE`: PEM private key file for HTTPS Streamable HTTP.
 
@@ -426,10 +426,10 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 Releases are done manually after the local release gate passes:
 
 1. Confirm `Cargo.toml`, `Cargo.lock`, `server.json`, `Dockerfile`, README, and `CHANGELOG.md` use the target version.
-2. Run the local release gate: `./Release.sh v0.2.1`.
+2. Run the local release gate: `./Release.sh v0.2.2`.
 3. Review `CHANGELOG.md` and the generated package.
 4. Commit and push `main`, then confirm CI passed for that exact commit.
-5. From the clean commit, publish with `./Release.sh v0.2.1 --publish`.
+5. From the clean commit, publish with `./Release.sh v0.2.2 --publish`.
 
 ## Roadmap
 
@@ -453,7 +453,7 @@ are recorded in [CHANGELOG.md](CHANGELOG.md).
   Support for seamless integration with Claude Desktop.
 
 - [x] **Core MCP Methods**
-  Implementation of essential MCP methods including resources/list and prompts/list.
+  Implementation of essential MCP methods including tools/list, resources/list, resources/templates/list, and resources/read.
 
 - [x] **Error Handling Improvements**
   Better error handling and recovery mechanisms for robust operation.

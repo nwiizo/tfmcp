@@ -204,13 +204,15 @@ run_step similarity-rs src --skip-test --threshold 0.90 --min-lines 8 --fail-on-
 run_step jq . server.json
 run_step git diff --check
 run_step cargo build --release --locked --all-features
-run_step cargo package --locked --allow-dirty
+run_step cargo package --list --locked --allow-dirty
 run_step cargo publish --dry-run --locked --allow-dirty
 
 if [[ "$MODE" == "--publish" ]]; then
     create_release_tag
     run_step git push origin "$VERSION"
-    run_step cargo publish --locked
+    # The dry-run immediately above verifies this exact clean worktree. Avoid
+    # compiling the generated package a second time before uploading it.
+    run_step cargo publish --locked --no-verify
     create_github_release
     echo
     echo "Release $VERSION published to crates.io and GitHub."

@@ -19,7 +19,7 @@ use crate::tfe::client::{PageParams, TfeClient};
 use rmcp::{
     ErrorData as McpError,
     handler::server::{tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, Content, ListToolsResult, Tool},
+    model::{CacheScope, CallToolResult, ContentBlock, ListToolsResult, Tool},
     service::{RequestContext, RoleServer, ServiceExt},
     tool, tool_router,
 };
@@ -29,20 +29,20 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{Mutex, RwLock};
 
-/// Serialize a value to pretty JSON, returning an McpError on failure.
-fn to_json(value: &impl serde::Serialize) -> Result<String, McpError> {
-    serde_json::to_string_pretty(value)
-        .map_err(|e| McpError::internal_error(format!("JSON serialization failed: {e}"), None))
-}
+const MCP_CACHE_TTL_MS: u64 = 300_000;
 
 fn json_success(value: &impl serde::Serialize) -> Result<CallToolResult, McpError> {
-    Ok(CallToolResult::success(vec![Content::text(to_json(
-        value,
-    )?)]))
+    let structured = serde_json::to_value(value)
+        .map_err(|e| McpError::internal_error(format!("JSON serialization failed: {e}"), None))?;
+    let text = serde_json::to_string_pretty(&structured)
+        .map_err(|e| McpError::internal_error(format!("JSON serialization failed: {e}"), None))?;
+    let mut result = CallToolResult::structured(structured);
+    result.content = vec![ContentBlock::text(text)];
+    Ok(result)
 }
 
 fn text_error(prefix: &str, error: impl Display) -> CallToolResult {
-    CallToolResult::error(vec![Content::text(format!("{prefix}: {error}"))])
+    CallToolResult::error(vec![ContentBlock::text(format!("{prefix}: {error}"))])
 }
 
 type R = Result<CallToolResult, McpError>;
@@ -758,10 +758,9 @@ impl TfMcpServer {
     }
 
     fn list_tools_result(&self) -> Result<ListToolsResult, McpError> {
-        Ok(ListToolsResult {
-            tools: self.filtered_tools(),
-            ..Default::default()
-        })
+        Ok(ListToolsResult::with_all_items(self.filtered_tools())
+            .with_ttl_ms(MCP_CACHE_TTL_MS)
+            .with_cache_scope(CacheScope::Public))
     }
 
     async fn run_tfmcp_call(&self, call: TfmcpToolCall) -> Result<CallToolResult, McpError> {
@@ -1273,14 +1272,13 @@ impl TfMcpServer {
         match tfmcp.change_project_directory(params.0.directory.clone()) {
             Ok(()) => {
                 let dir = tfmcp.get_project_directory().to_string_lossy().to_string();
-                let json = to_json(&serde_json::json!({
+                json_success(&serde_json::json!({
                     "success": true,
                     "directory": dir,
                     "message": format!("Changed to: {}", dir)
-                }))?;
-                Ok(CallToolResult::success(vec![Content::text(json)]))
+                }))
             }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "Failed to change directory: {e}"
             ))])),
         }
@@ -1327,7 +1325,7 @@ impl TfMcpServer {
             }
         };
 
-        let json = to_json(&serde_json::json!({
+        json_success(&serde_json::json!({
             "policy": {
                 "allow_dangerous_operations": allow_dangerous,
                 "allow_auto_approve": allow_auto_approve
@@ -1346,8 +1344,7 @@ impl TfMcpServer {
                 "secrets_count": secrets_detected.len(),
                 "compliance_score": compliance_score
             }
-        }))?;
-        Ok(CallToolResult::success(vec![Content::text(json)]))
+        }))
     }
 
     #[tool(
@@ -1523,14 +1520,11 @@ impl TfMcpServer {
             .get_latest_module_version(&params.0.namespace, &params.0.name, &params.0.provider)
             .await
         {
-            Ok(version) => {
-                let json = to_json(&serde_json::json!({
-                    "version": version,
-                    "module_id": format!("{}/{}/{}", params.0.namespace, params.0.name, params.0.provider)
-                }))?;
-                Ok(CallToolResult::success(vec![Content::text(json)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+            Ok(version) => json_success(&serde_json::json!({
+                "version": version,
+                "module_id": format!("{}/{}/{}", params.0.namespace, params.0.name, params.0.provider)
+            })),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "Failed to get latest module version: {e}"
             ))])),
         }
@@ -1554,15 +1548,12 @@ impl TfMcpServer {
             .get_provider_version(&params.0.provider_name, params.0.namespace.as_deref())
             .await
         {
-            Ok((version, namespace)) => {
-                let json = to_json(&serde_json::json!({
-                    "version": version,
-                    "namespace": namespace,
-                    "provider_id": format!("{}/{}", namespace, params.0.provider_name)
-                }))?;
-                Ok(CallToolResult::success(vec![Content::text(json)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+            Ok((version, namespace)) => json_success(&serde_json::json!({
+                "version": version,
+                "namespace": namespace,
+                "provider_id": format!("{}/{}", namespace, params.0.provider_name)
+            })),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "Failed to get latest provider version: {e}"
             ))])),
         }
@@ -2319,7 +2310,7 @@ impl TfMcpServer {
                     })
                     .collect();
 
-                let json = to_json(&serde_json::json!({
+                json_success(&serde_json::json!({
                     "provider": {
                         "name": info.name,
                         "namespace": namespace,
@@ -2329,10 +2320,9 @@ impl TfMcpServer {
                     },
                     "capabilities": capabilities,
                     "total_docs": docs.len()
-                }))?;
-                Ok(CallToolResult::success(vec![Content::text(json)]))
+                }))
             }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "Provider capabilities failed: {e}"
             ))])),
         }

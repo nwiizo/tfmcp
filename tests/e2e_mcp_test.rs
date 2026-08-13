@@ -4,8 +4,11 @@
 //! transport layer, validating real JSON-RPC message exchange.
 
 use rmcp::{
-    ClientHandler, ServerHandler, ServiceExt,
-    model::{CallToolRequestParams, ClientInfo, ReadResourceRequestParams, ServerJsonRpcMessage},
+    ClientHandler, ClientLifecycleMode, ClientServiceExt, ServerHandler, ServiceExt,
+    model::{
+        CacheScope, CallToolRequestParams, ClientInfo, ProtocolVersion, ReadResourceRequestParams,
+        ServerJsonRpcMessage,
+    },
     transport::{IntoTransport, Transport},
 };
 use tfmcp::core::tfmcp::TfMcp;
@@ -94,7 +97,7 @@ async fn test_server_info_fields() {
     assert_eq!(info.server_info.version, env!("CARGO_PKG_VERSION"));
     assert!(info.capabilities.tools.is_some());
     assert!(info.capabilities.resources.is_some());
-    assert!(info.capabilities.prompts.is_some());
+    assert!(info.capabilities.prompts.is_none());
     assert!(info.instructions.is_some());
     assert!(
         info.instructions
@@ -102,6 +105,26 @@ async fn test_server_info_fields() {
             .unwrap_or_default()
             .contains("Terraform")
     );
+}
+
+#[tokio::test]
+async fn test_server_advertises_2026_07_28_protocol() {
+    let Some((server, _dir)) = setup_server().await else {
+        eprintln!("skipping: terraform not available");
+        return;
+    };
+
+    let supported = server.supported_protocol_versions();
+
+    // The 2026-07-28 spec is opt-in: rmcp's ProtocolVersion::LATEST is still
+    // 2025-11-25, so negotiation is the only path a client has to reach it.
+    assert!(
+        supported.contains(&ProtocolVersion::V_2026_07_28),
+        "server must negotiate 2026-07-28, advertised: {supported:?}"
+    );
+    // Older clients must keep working across the same surface.
+    assert!(supported.contains(&ProtocolVersion::V_2025_11_25));
+    assert!(supported.contains(&ProtocolVersion::V_2025_06_18));
 }
 
 // =============================================================================
@@ -137,6 +160,58 @@ async fn start_e2e_with_server(
         .await
         .expect("client serve");
     Some((client, temp_dir))
+}
+
+async fn start_e2e_modern() -> Option<(
+    rmcp::service::RunningService<rmcp::RoleClient, TestClientHandler>,
+    tempfile::TempDir,
+)> {
+    let (server, temp_dir) = setup_server().await?;
+    let (server_transport, client_transport) = tokio::io::duplex(65536);
+
+    tokio::spawn(async move {
+        let svc = server.serve(server_transport).await.expect("server serve");
+        svc.waiting().await.expect("server waiting");
+    });
+
+    let client = TestClientHandler
+        .serve_with_lifecycle(
+            client_transport,
+            ClientLifecycleMode::Discover {
+                preferred_versions: vec![ProtocolVersion::V_2026_07_28],
+            },
+        )
+        .await
+        .expect("modern client discovery");
+    Some((client, temp_dir))
+}
+
+#[tokio::test]
+async fn test_e2e_discover_lifecycle_2026_07_28() {
+    let Some((client, _dir)) = start_e2e_modern().await else {
+        eprintln!("skipping: terraform not available");
+        return;
+    };
+
+    let peer_info = client.peer_info().expect("discovery peer info");
+    assert_eq!(peer_info.protocol_version, ProtocolVersion::V_2026_07_28);
+
+    let tools = client.list_tools(None).await.expect("modern list_tools");
+    assert!(
+        tools
+            .result_type
+            .as_ref()
+            .is_some_and(|result_type| result_type.is_complete())
+    );
+    assert!(tools.ttl_ms.is_some_and(|ttl_ms| ttl_ms > 0));
+    assert_eq!(tools.cache_scope, Some(CacheScope::Public));
+
+    let resources = client
+        .list_resources(None)
+        .await
+        .expect("modern list_resources");
+    assert!(resources.ttl_ms.is_some_and(|ttl_ms| ttl_ms > 0));
+    assert_eq!(resources.cache_scope, Some(CacheScope::Public));
 }
 
 #[tokio::test]
@@ -388,7 +463,7 @@ async fn test_e2e_gated_tfe_write_tool_fails_closed() {
     let text = result
         .content
         .first()
-        .and_then(|content| content.raw.as_text())
+        .and_then(|content| content.as_text())
         .map(|text| text.text.as_str())
         .unwrap_or_default();
     assert!(text.contains("ENABLE_TF_OPERATIONS=true"));
@@ -408,7 +483,7 @@ async fn test_e2e_gated_tfe_write_tool_fails_closed() {
     let variable_set_text = variable_set_result
         .content
         .first()
-        .and_then(|content| content.raw.as_text())
+        .and_then(|content| content.as_text())
         .map(|text| text.text.as_str())
         .unwrap_or_default();
     assert!(variable_set_text.contains("ENABLE_TF_OPERATIONS=true"));
@@ -482,7 +557,7 @@ async fn test_e2e_tfe_organization_allowlist_fails_closed() {
     let text = result
         .content
         .first()
-        .and_then(|content| content.raw.as_text())
+        .and_then(|content| content.as_text())
         .map(|text| text.text.as_str())
         .unwrap_or_default();
     assert!(text.contains("MCP_ORGANIZATION_ALLOWLIST"));
@@ -499,7 +574,7 @@ async fn test_e2e_tfe_organization_allowlist_fails_closed() {
         let id_text = id_result
             .content
             .first()
-            .and_then(|content| content.raw.as_text())
+            .and_then(|content| content.as_text())
             .map(|text| text.text.as_str())
             .unwrap_or_default();
         assert!(id_text.contains("cannot verify account-wide or ID-scoped"));
@@ -620,6 +695,74 @@ async fn test_streamable_http_health_and_initialize() {
 }
 
 #[tokio::test]
+async fn test_streamable_http_2026_discovery_is_sessionless() {
+    let Some((server, _dir)) = setup_server().await else {
+        eprintln!("skipping: terraform not available");
+        return;
+    };
+
+    let config = HttpTransportConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        endpoint: "/mcp".to_string(),
+        health_endpoint: "/health".to_string(),
+        metrics_endpoint: "/metrics".to_string(),
+        cors_mode: CorsMode::Strict,
+        allowed_origins: Vec::new(),
+        allowed_hosts: Vec::new(),
+        heartbeat_interval_secs: Some(15),
+        session_mode: HttpSessionMode::Stateful,
+        deployment: DeploymentControls::default(),
+    };
+    let router =
+        TfMcpServer::streamable_http_router(server, &config).expect("streamable http router");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind streamable http discovery listener");
+    let addr = listener.local_addr().expect("streamable http test addr");
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .await
+            .expect("streamable http discovery server");
+    });
+
+    let discover = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "server/discover",
+        "params": {
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": {
+                    "name": "tfmcp-modern-test",
+                    "version": "1.0.0"
+                },
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }
+        }
+    });
+    let response = reqwest::Client::new()
+        .post(format!("http://{addr}/mcp"))
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json, text/event-stream")
+        .header("Origin", "http://localhost")
+        .header("MCP-Protocol-Version", "2026-07-28")
+        .header("Mcp-Method", "server/discover")
+        .json(&discover)
+        .send()
+        .await
+        .expect("modern discovery request");
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert!(
+        response.headers().get("Mcp-Session-Id").is_none(),
+        "2026-07-28 requests must remain sessionless even in legacy stateful mode"
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
 async fn test_streamable_http_global_rate_limit() {
     let Some((server, _dir)) = setup_server().await else {
         eprintln!("skipping: terraform not available");
@@ -686,11 +829,7 @@ async fn test_e2e_list_resources() {
 
     assert_eq!(resources.resources.len(), 5, "Should have 5 MCP resources");
 
-    let uris: Vec<&str> = resources
-        .resources
-        .iter()
-        .map(|r| r.raw.uri.as_str())
-        .collect();
+    let uris: Vec<&str> = resources.resources.iter().map(|r| r.uri.as_str()).collect();
     assert!(uris.contains(&"terraform://style-guide"));
     assert!(uris.contains(&"/terraform/style-guide"));
     assert!(uris.contains(&"terraform://module-development"));
@@ -711,6 +850,8 @@ async fn test_e2e_read_resource() {
         .expect("read_resource");
 
     assert_eq!(result.contents.len(), 1);
+    assert!(result.ttl_ms.is_some_and(|ttl_ms| ttl_ms > 0));
+    assert_eq!(result.cache_scope, Some(CacheScope::Public));
     // The content should contain our style guide text
     let text = &result.contents[0];
     let raw_text = serde_json::to_string(text).unwrap_or_default();
@@ -762,8 +903,15 @@ async fn test_e2e_call_tool_list_resources() {
 
     // Content should be text
     if let Some(content) = result.content.first() {
-        assert!(content.raw.as_text().is_some(), "Content should be text");
+        assert!(content.as_text().is_some(), "Content should be text");
     }
+    assert!(
+        result
+            .structured_content
+            .as_ref()
+            .is_some_and(|value| value["resources"].is_array()),
+        "Terraform results should include structuredContent"
+    );
 }
 
 #[tokio::test]
@@ -785,7 +933,7 @@ async fn test_e2e_call_tool_validate() {
 
     // Content should be parseable text
     if let Some(content) = result.content.first() {
-        assert!(content.raw.as_text().is_some(), "Content should be text");
+        assert!(content.as_text().is_some(), "Content should be text");
     }
 }
 
@@ -807,7 +955,7 @@ async fn test_e2e_call_tool_get_security_status() {
     );
 
     if let Some(content) = result.content.first() {
-        if let Some(text) = content.raw.as_text() {
+        if let Some(text) = content.as_text() {
             let parsed: serde_json::Value =
                 serde_json::from_str(&text.text).expect("Should be valid JSON");
             assert!(parsed["policy"].is_object(), "Should have policy field");
@@ -819,6 +967,7 @@ async fn test_e2e_call_tool_get_security_status() {
                 parsed["security_scan"].is_object(),
                 "Should have security_scan field"
             );
+            assert_eq!(result.structured_content.as_ref(), Some(&parsed));
         }
     }
 }
@@ -855,7 +1004,7 @@ async fn test_e2e_call_tool_analyze_module_health() {
     assert!(!result.content.is_empty(), "Should return health analysis");
 
     if let Some(content) = result.content.first() {
-        if let Some(text) = content.raw.as_text() {
+        if let Some(text) = content.as_text() {
             let parsed: serde_json::Value =
                 serde_json::from_str(&text.text).expect("Should be valid JSON");
             assert!(

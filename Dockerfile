@@ -41,7 +41,7 @@ RUN cargo build --release --locked
 FROM debian:bullseye-slim
 
 ARG TERRAFORM_VERSION="1.15.8"
-ARG TFMCP_VERSION="0.2.1"
+ARG TFMCP_VERSION="0.2.2"
 ARG TFMCP_REVISION="unknown"
 
 LABEL io.modelcontextprotocol.server.name="io.github.nwiizo/tfmcp" \

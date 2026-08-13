@@ -78,8 +78,8 @@ jobs:
       - name: Validate MCP Registry metadata
         run: jq . server.json
 
-      - name: Package dry run
-        run: cargo package --locked --allow-dirty
+      - name: List package contents
+        run: cargo package --list --locked --allow-dirty
 
       - name: Publish dry run
         run: cargo publish --dry-run --locked --allow-dirty

@@ -19,6 +19,10 @@ Do not maintain a hand-counted tool list here. The RMCP tool router and
 Use `tfmcp mcp --toolsets ...` for categories and `--tools ...` for an explicit
 allowlist. Unknown toolsets fail closed.
 
+Successful JSON-producing tools return both text JSON for legacy clients and
+the same value in `structuredContent`. Tool and resource metadata carries a
+five-minute public cache hint.
+
 ## MCP resources
 
 - `terraform://style-guide` and `/terraform/style-guide`

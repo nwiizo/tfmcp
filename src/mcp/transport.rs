@@ -180,7 +180,7 @@ impl HttpTransportConfig {
 
     pub fn streamable_http_config(&self) -> StreamableHttpServerConfig {
         let mut config = StreamableHttpServerConfig::default()
-            .with_stateful_mode(self.session_mode.is_stateful())
+            .with_legacy_session_mode(self.session_mode.is_stateful())
             .with_json_response(!self.session_mode.is_stateful())
             .with_sse_keep_alive(self.heartbeat_interval_secs.map(Duration::from_secs));
         if !self.allowed_hosts.is_empty() {
@@ -383,7 +383,7 @@ mod tests {
         assert_eq!(config.session_mode, HttpSessionMode::Stateless);
         assert!(config.deployment.organization_allowed("org-a"));
         assert_eq!(config.deployment.rate_limit_global, Some(100));
-        assert!(!config.streamable_http_config().stateful_mode);
+        assert!(!config.streamable_http_config().legacy_session_mode);
         assert!(config.streamable_http_config().json_response);
     }
 
