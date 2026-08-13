@@ -196,6 +196,8 @@ jobs:
           build-args: |
             TFMCP_VERSION=${{ steps.meta.outputs.version }}
             TFMCP_REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Verify versioned image
         run: docker buildx imagetools inspect "ghcr.io/nwiizo/tfmcp:${GITHUB_REF_NAME#v}"
