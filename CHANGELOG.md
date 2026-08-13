@@ -14,7 +14,8 @@ All notable changes to tfmcp are documented in this file.
   local release gate.
 - Run RustSec audits on dependency changes and weekly schedules, and publish
   multi-platform OCI images in a tag-only workflow on native AMD64 and ARM64
-  runners.
+  runners. A guarded manual rebuild path reuses an existing release version
+  only when its runtime build inputs still match the tagged source.
 - Pin third-party GitHub Actions to immutable commit SHAs, minimize token
   permissions, cancel stale CI runs, and enable grouped Dependabot updates.
 - Add a repository-managed pre-commit hook for quick, change-aware local checks.

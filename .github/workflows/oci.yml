@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing release version to rebuild, without the v prefix
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,8 +19,47 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    name: Resolve release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      revision: ${{ steps.release.outputs.revision }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release source
+        id: release
+        env:
+          MANUAL_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            if [[ ! "${MANUAL_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "error: version must look like 0.2.2" >&2
+              exit 1
+            fi
+
+            release_ref="v${MANUAL_VERSION}"
+            git rev-parse --verify "${release_ref}^{commit}" >/dev/null
+            git diff --quiet "${release_ref}^{commit}" HEAD -- \
+              Cargo.toml Cargo.lock rust-toolchain.toml build.rs src example Dockerfile
+            version="${MANUAL_VERSION}"
+            revision=$(git rev-parse "${release_ref}^{commit}")
+          else
+            version="${GITHUB_REF_NAME#v}"
+            revision="${GITHUB_SHA}"
+          fi
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "revision=${revision}" >> "${GITHUB_OUTPUT}"
+
   build:
     name: Build and publish
+    needs: prepare
     uses: docker/github-builder/.github/workflows/build.yml@a492c6d04fd3315f67230809b44d60cc0acd50b3 # v1.16.0
     permissions:
       contents: read
@@ -26,11 +71,12 @@ jobs:
       platforms: linux/amd64,linux/arm64
       meta-images: ghcr.io/nwiizo/tfmcp
       meta-tags: |
-        type=semver,pattern={{version}}
-        type=semver,pattern={{major}}.{{minor}}
+        type=semver,pattern={{version}},value=${{ needs.prepare.outputs.version }}
+        type=semver,pattern={{major}}.{{minor}},value=${{ needs.prepare.outputs.version }}
         type=raw,value=latest
       build-args: |
-        TFMCP_REVISION=${{ github.sha }}
+        TFMCP_VERSION=${{ needs.prepare.outputs.version }}
+        TFMCP_REVISION=${{ needs.prepare.outputs.revision }}
       cache: true
       cache-mode: max
       sbom: true
