@@ -372,10 +372,10 @@ fn calculate_max_depth(nodes: &[GraphNode], edges: &[GraphEdge]) -> i32 {
     for root in root_nodes {
         let mut queue = vec![(root, 0)];
         while let Some((node, depth)) = queue.pop() {
-            if let Some(&prev_depth) = visited.get(node) {
-                if prev_depth >= depth {
-                    continue;
-                }
+            if let Some(&prev_depth) = visited.get(node)
+                && prev_depth >= depth
+            {
+                continue;
             }
             visited.insert(node, depth);
             max_depth = max_depth.max(depth);

@@ -95,10 +95,10 @@ impl TerraformService {
         let output_str = String::from_utf8_lossy(&output.stdout);
 
         // Parse JSON output
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&output_str) {
-            if let Some(version) = json.get("terraform_version") {
-                return Ok(version.to_string().trim_matches('"').to_string());
-            }
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&output_str)
+            && let Some(version) = json.get("terraform_version")
+        {
+            return Ok(version.to_string().trim_matches('"').to_string());
         }
 
         // Fallback to non-JSON output
@@ -387,14 +387,12 @@ impl TerraformService {
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
-            if path.is_file() {
-                if let Some(ext) = path.extension() {
-                    if ext == "tf" || ext == "tf.json" {
-                        if let Some(name) = path.file_name() {
-                            tf_files.push(name.to_string_lossy().to_string());
-                        }
-                    }
-                }
+            if path.is_file()
+                && let Some(ext) = path.extension()
+                && (ext == "tf" || ext == "tf.json")
+                && let Some(name) = path.file_name()
+            {
+                tf_files.push(name.to_string_lossy().to_string());
             }
         }
 
@@ -605,12 +603,13 @@ impl TerraformService {
 
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() && path.extension().is_some_and(|ext| ext == "tf") {
-                if let Some(filename) = path.file_name() {
-                    let filename_str = filename.to_string_lossy().to_string();
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        file_contents.insert(filename_str, content);
-                    }
+            if path.is_file()
+                && path.extension().is_some_and(|ext| ext == "tf")
+                && let Some(filename) = path.file_name()
+            {
+                let filename_str = filename.to_string_lossy().to_string();
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    file_contents.insert(filename_str, content);
                 }
             }
         }
@@ -640,12 +639,13 @@ impl TerraformService {
                         .unwrap_or_default();
                     let new_prefix = format!("{prefix}/{submodule_name}");
                     Self::read_nested_modules(&path, &new_prefix, file_contents)?;
-                } else if path.is_file() && path.extension().is_some_and(|ext| ext == "tf") {
-                    if let Some(filename) = path.file_name() {
-                        let key = format!("{}/{}", prefix, filename.to_string_lossy());
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            file_contents.insert(key, content);
-                        }
+                } else if path.is_file()
+                    && path.extension().is_some_and(|ext| ext == "tf")
+                    && let Some(filename) = path.file_name()
+                {
+                    let key = format!("{}/{}", prefix, filename.to_string_lossy());
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        file_contents.insert(key, content);
                     }
                 }
             }

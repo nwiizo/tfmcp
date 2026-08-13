@@ -212,15 +212,12 @@ fn parse_plan_json(json_str: &str) -> anyhow::Result<TerraformPlanJson> {
             }
 
             // Check if this is a resource_drift or planned_change message
-            if let Some(change_type) = obj.get("type").and_then(|t| t.as_str()) {
-                if change_type == "planned_change" || change_type == "resource_drift" {
-                    if let Some(change) = obj.get("change") {
-                        if let Ok(rc) = serde_json::from_value::<PlanResourceChange>(change.clone())
-                        {
-                            resource_changes.push(rc);
-                        }
-                    }
-                }
+            if let Some(change_type) = obj.get("type").and_then(|t| t.as_str())
+                && (change_type == "planned_change" || change_type == "resource_drift")
+                && let Some(change) = obj.get("change")
+                && let Ok(rc) = serde_json::from_value::<PlanResourceChange>(change.clone())
+            {
+                resource_changes.push(rc);
             }
         }
     }

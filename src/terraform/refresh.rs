@@ -138,35 +138,33 @@ fn parse_refresh_output(json_output: &str) -> Vec<RefreshChange> {
             if let Some(msg_type) = obj.get("type").and_then(|t| t.as_str()) {
                 match msg_type {
                     "resource_drift" => {
-                        if let Some(change) = obj.get("change") {
-                            if let Some(resource) = change.get("resource") {
-                                if let Some(addr) = resource.get("addr").and_then(|a| a.as_str()) {
-                                    changes.push(RefreshChange {
-                                        resource_address: addr.to_string(),
-                                        change_type: RefreshChangeType::Drifted,
-                                        detail: Some("Resource has drifted from state".to_string()),
-                                    });
-                                }
-                            }
+                        if let Some(change) = obj.get("change")
+                            && let Some(resource) = change.get("resource")
+                            && let Some(addr) = resource.get("addr").and_then(|a| a.as_str())
+                        {
+                            changes.push(RefreshChange {
+                                resource_address: addr.to_string(),
+                                change_type: RefreshChangeType::Drifted,
+                                detail: Some("Resource has drifted from state".to_string()),
+                            });
                         }
                     }
                     "planned_change" => {
-                        if let Some(change) = obj.get("change") {
-                            if let Some(resource) = change.get("resource") {
-                                if let Some(addr) = resource.get("addr").and_then(|a| a.as_str()) {
-                                    let action = change
-                                        .get("action")
-                                        .and_then(|a| a.as_str())
-                                        .unwrap_or("update");
+                        if let Some(change) = obj.get("change")
+                            && let Some(resource) = change.get("resource")
+                            && let Some(addr) = resource.get("addr").and_then(|a| a.as_str())
+                        {
+                            let action = change
+                                .get("action")
+                                .and_then(|a| a.as_str())
+                                .unwrap_or("update");
 
-                                    if action == "update" {
-                                        changes.push(RefreshChange {
-                                            resource_address: addr.to_string(),
-                                            change_type: RefreshChangeType::Updated,
-                                            detail: Some("State will be updated".to_string()),
-                                        });
-                                    }
-                                }
+                            if action == "update" {
+                                changes.push(RefreshChange {
+                                    resource_address: addr.to_string(),
+                                    change_type: RefreshChangeType::Updated,
+                                    detail: Some("State will be updated".to_string()),
+                                });
                             }
                         }
                     }

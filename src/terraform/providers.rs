@@ -142,26 +142,26 @@ fn parse_providers_output(output: &str) -> Vec<ProviderInfo> {
             || line.starts_with("└")
         {
             // Check if this is a provider line in tree format
-            if line.contains("provider[") || line.contains("registry.terraform.io") {
-                if let Some(provider) = parse_provider_line(line) {
-                    let key = format!("{}/{}", provider.namespace, provider.name);
-                    if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
-                        e.insert(true);
-                        providers.push(provider);
-                    }
+            if (line.contains("provider[") || line.contains("registry.terraform.io"))
+                && let Some(provider) = parse_provider_line(line)
+            {
+                let key = format!("{}/{}", provider.namespace, provider.name);
+                if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                    e.insert(true);
+                    providers.push(provider);
                 }
             }
             continue;
         }
 
         // Parse provider lines
-        if line.contains("provider[") || line.contains("registry.terraform.io") {
-            if let Some(provider) = parse_provider_line(line) {
-                let key = format!("{}/{}", provider.namespace, provider.name);
-                if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
-                    e.insert(true);
-                    providers.push(provider);
-                }
+        if (line.contains("provider[") || line.contains("registry.terraform.io"))
+            && let Some(provider) = parse_provider_line(line)
+        {
+            let key = format!("{}/{}", provider.namespace, provider.name);
+            if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                e.insert(true);
+                providers.push(provider);
             }
         }
     }
@@ -250,10 +250,10 @@ fn parse_lock_hcl(content: &str) -> anyhow::Result<Vec<ProviderLock>> {
             }
 
             // Extract new provider name
-            if let Some(start) = line.find('"') {
-                if let Some(end) = line[start + 1..].find('"') {
-                    current_provider = Some(line[start + 1..start + 1 + end].to_string());
-                }
+            if let Some(start) = line.find('"')
+                && let Some(end) = line[start + 1..].find('"')
+            {
+                current_provider = Some(line[start + 1..start + 1 + end].to_string());
             }
             current_version = None;
             current_constraints = None;
@@ -261,25 +261,25 @@ fn parse_lock_hcl(content: &str) -> anyhow::Result<Vec<ProviderLock>> {
         }
         // Version
         else if line.starts_with("version") {
-            if let Some(start) = line.find('"') {
-                if let Some(end) = line[start + 1..].find('"') {
-                    current_version = Some(line[start + 1..start + 1 + end].to_string());
-                }
+            if let Some(start) = line.find('"')
+                && let Some(end) = line[start + 1..].find('"')
+            {
+                current_version = Some(line[start + 1..start + 1 + end].to_string());
             }
         }
         // Constraints
         else if line.starts_with("constraints") {
-            if let Some(start) = line.find('"') {
-                if let Some(end) = line[start + 1..].find('"') {
-                    current_constraints = Some(line[start + 1..start + 1 + end].to_string());
-                }
+            if let Some(start) = line.find('"')
+                && let Some(end) = line[start + 1..].find('"')
+            {
+                current_constraints = Some(line[start + 1..start + 1 + end].to_string());
             }
         }
         // Hashes
-        else if line.starts_with("\"h1:") || line.starts_with("\"zh:") {
-            if let Some(end) = line[1..].find('"') {
-                current_hashes.push(line[1..end + 1].to_string());
-            }
+        else if (line.starts_with("\"h1:") || line.starts_with("\"zh:"))
+            && let Some(end) = line[1..].find('"')
+        {
+            current_hashes.push(line[1..end + 1].to_string());
         }
     }
 
@@ -305,10 +305,11 @@ pub fn get_provider_requirements(project_dir: &Path) -> anyhow::Result<HashMap<S
     if let Ok(entries) = fs::read_dir(project_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() && path.extension().is_some_and(|e| e == "tf") {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    extract_provider_requirements(&content, &mut requirements);
-                }
+            if path.is_file()
+                && path.extension().is_some_and(|e| e == "tf")
+                && let Ok(content) = fs::read_to_string(&path)
+            {
+                extract_provider_requirements(&content, &mut requirements);
             }
         }
     }
@@ -340,18 +341,17 @@ fn extract_provider_requirements(content: &str, requirements: &mut HashMap<Strin
             }
 
             // Look for version constraints
-            if line.contains("version") {
-                if let Some(start) = line.find('"') {
-                    if let Some(end) = line[start + 1..].find('"') {
-                        let version = line[start + 1..start + 1 + end].to_string();
+            if line.contains("version")
+                && let Some(start) = line.find('"')
+                && let Some(end) = line[start + 1..].find('"')
+            {
+                let version = line[start + 1..start + 1 + end].to_string();
 
-                        // Try to find the provider name from previous lines or same line
-                        if let Some(eq_pos) = line.find('=') {
-                            let name = line[..eq_pos].trim().to_string();
-                            if !name.is_empty() && name != "version" {
-                                requirements.insert(name, version.clone());
-                            }
-                        }
+                // Try to find the provider name from previous lines or same line
+                if let Some(eq_pos) = line.find('=') {
+                    let name = line[..eq_pos].trim().to_string();
+                    if !name.is_empty() && name != "version" {
+                        requirements.insert(name, version.clone());
                     }
                 }
             }

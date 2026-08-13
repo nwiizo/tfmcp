@@ -650,10 +650,10 @@ pub async fn fetch_live_content(url: &str) -> Option<String> {
     if response.status().is_success() {
         let text = response.text().await.ok()?;
         // Strip MDX frontmatter if present
-        if let Some(stripped) = text.strip_prefix("---") {
-            if let Some(end) = stripped.find("---") {
-                return Some(stripped[end + 3..].trim_start().to_string());
-            }
+        if let Some(stripped) = text.strip_prefix("---")
+            && let Some(end) = stripped.find("---")
+        {
+            return Some(stripped[end + 3..].trim_start().to_string());
         }
         Some(text)
     } else {

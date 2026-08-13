@@ -22,6 +22,9 @@ All notable changes to tfmcp are documented in this file.
 - Update the locked Rust dependency graph, including RMCP 3.1.2, and adopt the
   current compatible major releases of `axum-server`, `tower-http`, and `which`
   without raising the Rust 1.88 MSRV.
+- Use Rust 1.97.1 for local development and release builds while retaining a
+  dedicated Rust 1.88 MSRV check.
+- Correct the Terraform taint deprecation warning for future major versions.
 - Build containers from digest-pinned Rust 1.97.1 and Debian Trixie images,
   download Terraform once in an architecture-aware stage, and keep download
   utilities out of the final image.

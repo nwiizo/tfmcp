@@ -141,12 +141,12 @@ pub fn check_guidelines(
             for line in content.lines() {
                 if line.contains("type") && line.contains("any") {
                     // Try to find the variable name
-                    if let Some(start) = content.find("variable \"") {
-                        if let Some(end) = content[start + 10..].find('"') {
-                            let var_name = &content[start + 10..start + 10 + end];
-                            if !result.any_type_usage.contains(&var_name.to_string()) {
-                                result.any_type_usage.push(var_name.to_string());
-                            }
+                    if let Some(start) = content.find("variable \"")
+                        && let Some(end) = content[start + 10..].find('"')
+                    {
+                        let var_name = &content[start + 10..start + 10 + end];
+                        if !result.any_type_usage.contains(&var_name.to_string()) {
+                            result.any_type_usage.push(var_name.to_string());
                         }
                     }
                 }

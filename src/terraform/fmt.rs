@@ -142,18 +142,17 @@ fn count_tf_files(dir: &Path) -> usize {
             let path = entry.path();
             if path.is_dir() {
                 // Skip hidden directories and common non-terraform directories
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name.starts_with('.') || name == "node_modules" || name == "vendor" {
-                        continue;
-                    }
+                if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                    && (name.starts_with('.') || name == "node_modules" || name == "vendor")
+                {
+                    continue;
                 }
                 count += count_tf_files(&path);
-            } else if path.is_file() {
-                if let Some(ext) = path.extension() {
-                    if ext == "tf" {
-                        count += 1;
-                    }
-                }
+            } else if path.is_file()
+                && let Some(ext) = path.extension()
+                && ext == "tf"
+            {
+                count += 1;
             }
         }
     }

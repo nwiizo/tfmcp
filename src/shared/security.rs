@@ -105,10 +105,10 @@ impl SecurityManager {
         if let Ok(val) = env::var("TFMCP_ALLOW_AUTO_APPROVE") {
             policy.allow_auto_approve = val.to_lowercase() == "true";
         }
-        if let Ok(val) = env::var("TFMCP_MAX_RESOURCES") {
-            if let Ok(limit) = val.parse::<usize>() {
-                policy.max_resource_limit = Some(limit);
-            }
+        if let Ok(val) = env::var("TFMCP_MAX_RESOURCES")
+            && let Ok(limit) = val.parse::<usize>()
+        {
+            policy.max_resource_limit = Some(limit);
         }
         if let Ok(val) = env::var("TFMCP_AUDIT_ENABLED") {
             policy.audit_logging.enabled = val.to_lowercase() == "true";
@@ -122,16 +122,15 @@ impl SecurityManager {
         // Load additional security policy from config file if exists
         if let Some(home) = dirs::home_dir() {
             let config_path = home.join(".tfmcp").join("security.json");
-            if config_path.exists() {
-                if let Ok(content) = fs::read_to_string(&config_path) {
-                    if let Ok(file_policy) = serde_json::from_str::<SecurityPolicy>(&content) {
-                        // Merge with environment-based policy
-                        policy = file_policy;
-                        // Re-apply environment overrides
-                        if let Ok(val) = env::var("TFMCP_ALLOW_DANGEROUS_OPS") {
-                            policy.allow_dangerous_operations = val.to_lowercase() == "true";
-                        }
-                    }
+            if config_path.exists()
+                && let Ok(content) = fs::read_to_string(&config_path)
+                && let Ok(file_policy) = serde_json::from_str::<SecurityPolicy>(&content)
+            {
+                // Merge with environment-based policy
+                policy = file_policy;
+                // Re-apply environment overrides
+                if let Ok(val) = env::var("TFMCP_ALLOW_DANGEROUS_OPS") {
+                    policy.allow_dangerous_operations = val.to_lowercase() == "true";
                 }
             }
         }
@@ -248,12 +247,12 @@ impl SecurityManager {
     }
     /// Check if the number of resources exceeds the limit
     pub fn check_resource_limit(&self, resource_count: usize) -> Result<()> {
-        if let Some(limit) = self.policy.max_resource_limit {
-            if resource_count > limit {
-                return Err(anyhow::anyhow!(
-                    "Operation blocked: Resource count ({resource_count}) exceeds security limit ({limit})"
-                ));
-            }
+        if let Some(limit) = self.policy.max_resource_limit
+            && resource_count > limit
+        {
+            return Err(anyhow::anyhow!(
+                "Operation blocked: Resource count ({resource_count}) exceeds security limit ({limit})"
+            ));
         }
         Ok(())
     }

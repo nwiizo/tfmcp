@@ -119,25 +119,26 @@ fn check_terraform_version_for_deprecation(terraform_path: &Path) -> Option<Stri
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
-        if let Some(version_str) = json.get("terraform_version").and_then(|v| v.as_str()) {
-            let parts: Vec<&str> = version_str.split('.').collect();
-            if let (Some(major), Some(minor)) = (
-                parts.first().and_then(|s| s.parse::<i32>().ok()),
-                parts.get(1).and_then(|s| s.parse::<i32>().ok()),
-            ) {
-                if major >= 1 && minor >= 5 {
-                    return Some(format!(
-                        "Note: 'terraform taint' and 'terraform untaint' are deprecated in Terraform {}. \
-                        Consider using 'terraform apply -replace={}' instead for new workflows.",
-                        version_str, "RESOURCE_ADDRESS"
-                    ));
-                }
-            }
-        }
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout)
+        && let Some(version_str) = json.get("terraform_version").and_then(|v| v.as_str())
+        && taint_is_deprecated(version_str)
+    {
+        return Some(format!(
+            "Note: 'terraform taint' and 'terraform untaint' are deprecated in Terraform {}. \
+                    Consider using 'terraform apply -replace={}' instead for new workflows.",
+            version_str, "RESOURCE_ADDRESS"
+        ));
     }
 
     None
+}
+
+fn taint_is_deprecated(version: &str) -> bool {
+    let mut parts = version.split('.');
+    let major = parts.next().and_then(|part| part.parse::<i32>().ok());
+    let minor = parts.next().and_then(|part| part.parse::<i32>().ok());
+
+    matches!((major, minor), (Some(major), Some(minor)) if (major, minor) >= (1, 5))
 }
 
 /// Get the recommended replacement command for Terraform 1.5+
@@ -188,5 +189,13 @@ mod tests {
         let cmd = get_replacement_command("aws_instance.example");
         assert!(cmd.contains("-replace="));
         assert!(cmd.contains("aws_instance.example"));
+    }
+
+    #[test]
+    fn test_taint_deprecation_version_boundary() {
+        assert!(!taint_is_deprecated("1.4.9"));
+        assert!(taint_is_deprecated("1.5.0"));
+        assert!(taint_is_deprecated("2.0.0"));
+        assert!(!taint_is_deprecated("invalid"));
     }
 }

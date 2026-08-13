@@ -27,10 +27,10 @@ impl<T: Clone> SimpleCache<T> {
     pub async fn get(&self, key: &str) -> Option<T> {
         let storage = self.storage.read().await;
 
-        if let Some(item) = storage.get(key) {
-            if item.inserted_at.elapsed() < self.ttl {
-                return Some(item.value.clone());
-            }
+        if let Some(item) = storage.get(key)
+            && item.inserted_at.elapsed() < self.ttl
+        {
+            return Some(item.value.clone());
         }
 
         None

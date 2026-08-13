@@ -152,14 +152,14 @@ fn parse_latest_provider_version_json(
 ) -> Result<String, RegistryError> {
     match serde_json::from_value::<ProviderVersions>(json_value.clone()) {
         Ok(mut versions) => {
-            if versions.versions.is_empty() {
-                if let Some(data) = versions.data.as_ref() {
-                    versions.versions = data
-                        .iter()
-                        .map(|v| v.version.clone())
-                        .filter(|v| !v.is_empty())
-                        .collect();
-                }
+            if versions.versions.is_empty()
+                && let Some(data) = versions.data.as_ref()
+            {
+                versions.versions = data
+                    .iter()
+                    .map(|v| v.version.clone())
+                    .filter(|v| !v.is_empty())
+                    .collect();
             }
 
             provider_latest_version(versions.versions, provider_name, namespace)
@@ -353,10 +353,10 @@ impl RegistrySearchItem for ProviderInfo {
     type Response = RegistrySearchResponse;
 
     fn items(mut response: Self::Response) -> Vec<Self> {
-        if response.providers.is_empty() {
-            if let Some(data) = response.data.take() {
-                response.providers = data;
-            }
+        if response.providers.is_empty()
+            && let Some(data) = response.data.take()
+        {
+            response.providers = data;
         }
         response.providers
     }
@@ -430,11 +430,11 @@ impl RegistryClient {
 
         debug!("{} response status: {}", context.label, status);
 
-        if status == StatusCode::NOT_FOUND {
-            if let Some(not_found) = context.not_found {
-                warn!("{}", not_found.warn_message());
-                return Err(not_found.error());
-            }
+        if status == StatusCode::NOT_FOUND
+            && let Some(not_found) = context.not_found
+        {
+            warn!("{}", not_found.warn_message());
+            return Err(not_found.error());
         }
 
         if status == StatusCode::TOO_MANY_REQUESTS {

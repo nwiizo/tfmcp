@@ -126,10 +126,10 @@ pub fn analyze_state(
     if let Some(state_resources) = state.resources {
         for resource in state_resources {
             // Apply type filter if specified
-            if let Some(filter) = resource_type_filter {
-                if !resource.resource_type.contains(filter) {
-                    continue;
-                }
+            if let Some(filter) = resource_type_filter
+                && !resource.resource_type.contains(filter)
+            {
+                continue;
             }
 
             let provider_name = extract_provider_name(&resource.provider);

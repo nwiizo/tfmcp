@@ -954,21 +954,21 @@ async fn test_e2e_call_tool_get_security_status() {
         "get_security_status should succeed"
     );
 
-    if let Some(content) = result.content.first() {
-        if let Some(text) = content.as_text() {
-            let parsed: serde_json::Value =
-                serde_json::from_str(&text.text).expect("Should be valid JSON");
-            assert!(parsed["policy"].is_object(), "Should have policy field");
-            assert!(
-                parsed["permissions"].is_object(),
-                "Should have permissions field"
-            );
-            assert!(
-                parsed["security_scan"].is_object(),
-                "Should have security_scan field"
-            );
-            assert_eq!(result.structured_content.as_ref(), Some(&parsed));
-        }
+    if let Some(content) = result.content.first()
+        && let Some(text) = content.as_text()
+    {
+        let parsed: serde_json::Value =
+            serde_json::from_str(&text.text).expect("Should be valid JSON");
+        assert!(parsed["policy"].is_object(), "Should have policy field");
+        assert!(
+            parsed["permissions"].is_object(),
+            "Should have permissions field"
+        );
+        assert!(
+            parsed["security_scan"].is_object(),
+            "Should have security_scan field"
+        );
+        assert_eq!(result.structured_content.as_ref(), Some(&parsed));
     }
 }
 
@@ -1003,15 +1003,15 @@ async fn test_e2e_call_tool_analyze_module_health() {
 
     assert!(!result.content.is_empty(), "Should return health analysis");
 
-    if let Some(content) = result.content.first() {
-        if let Some(text) = content.as_text() {
-            let parsed: serde_json::Value =
-                serde_json::from_str(&text.text).expect("Should be valid JSON");
-            assert!(
-                parsed["health_score"].is_number(),
-                "Should have health_score"
-            );
-        }
+    if let Some(content) = result.content.first()
+        && let Some(text) = content.as_text()
+    {
+        let parsed: serde_json::Value =
+            serde_json::from_str(&text.text).expect("Should be valid JSON");
+        assert!(
+            parsed["health_score"].is_number(),
+            "Should have health_score"
+        );
     }
 }
 
