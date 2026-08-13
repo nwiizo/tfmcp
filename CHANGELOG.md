@@ -29,6 +29,8 @@ All notable changes to tfmcp are documented in this file.
   Ubuntu 24.04 and macOS 15 remain the stable explicit runner baselines.
 - Make manual OCI runs non-publishing by default so container changes can be
   validated on native multi-platform runners without lengthening routine CI.
+- Keep Cargo package inspection in the release gate instead of routine CI, and
+  rotate the affected Rust cache to remove stale package-staging paths.
 
 ## [0.2.2] - 2026-08-13
 
