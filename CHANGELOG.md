@@ -4,8 +4,42 @@ All notable changes to tfmcp are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-09-08
+
+### Added
+
+- Saved local plans with opaque IDs, target and version metadata, variable-file
+  inputs, replacement requests, and refresh-only previews. Review, detailed
+  analysis, and PR summaries can all reuse the same plan without replanning.
+- Local execution preparation reports configuration validity, required provider
+  lockfiles, workspace/backend information, and absent versus unreadable state.
+- Bounded, non-interactive asynchronous execution for init, plan, saved-plan
+  apply, validation, and execution preparation, with a configurable timeout.
+- Saved-plan application reports its exit code and checks resulting state
+  resource addresses. Previously attempted plans cannot be applied again.
+
+### Fixed
+
+- Update `h2` to 0.4.19 to address RUSTSEC-2026-0258 and replace the yanked
+  `chacha20` 0.10.1 dependency with 0.10.2.
+- Parse actual Terraform JSON UI events, reject malformed/incomplete plans and
+  error diagnostics, and use saved-plan JSON for attribute-level analysis.
+- Redact sensitive resource and output values before returning plan results;
+  preserve replacement action ordering and replacement-causing attribute paths.
+- Require review for resource or output changes instead of treating a low risk
+  score as approval. Unreadable state no longer reports preparation as ready.
+- Return failed operations as MCP tool errors while retaining structured failure
+  results and recording failed tool-call metrics.
+
 ### Changed
 
+- `apply_terraform` now requires a saved `plan_id` and `auto_approve=true`, with
+  both existing dangerous-operation and auto-approve gates enabled. It no longer
+  generates an unreviewed plan or waits for interactive input. A changed target,
+  workspace, backend metadata, Terraform version, lockfile, or plan file blocks
+  application. Plan IDs expire on server restart; at most 64 plans are retained.
+- Include saved-plan generation in the default toolset and plan analysis/review
+  in the Terraform toolset, so local workflows can use a consistent toolset.
 - Keep routine Rust CI on the shortest useful path by removing duplicate Linux
   builds, non-blocking coverage upload, publish dry-runs, and heuristic
   architecture scans from every push.
@@ -126,5 +160,6 @@ The compatible surface includes `get_plan_json_output`, `get_apply_logs`,
 beyond API mirroring: local Terraform CLI workflows, entrypoint detection,
 module health analysis, state safety checks, and local dangerous-operation gates.
 
+[0.2.3]: https://github.com/nwiizo/tfmcp/releases/tag/v0.2.3
 [0.2.2]: https://github.com/nwiizo/tfmcp/releases/tag/v0.2.2
 [0.2.1]: https://github.com/nwiizo/tfmcp/releases/tag/v0.2.1

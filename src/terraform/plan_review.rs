@@ -20,6 +20,8 @@ pub struct PlanReview {
     pub recommendations: Vec<String>,
     pub destructive_changes: Vec<String>,
     pub replacement_changes: Vec<String>,
+    #[serde(default)]
+    pub changed_outputs: Vec<String>,
     pub markdown: String,
 }
 
@@ -50,6 +52,12 @@ pub fn review_plan(analysis: &PlanAnalysis) -> PlanReview {
     }
 
     let mut warnings = analysis.risk_assessment.warnings.clone();
+    if !analysis.detailed {
+        warnings.push(
+            "Attribute-level changes were not available; review a saved plan before applying"
+                .to_string(),
+        );
+    }
     if analysis.summary.replace > 0 {
         warnings.push(format!(
             "{} resource(s) will be replaced",
@@ -59,7 +67,17 @@ pub fn review_plan(analysis: &PlanAnalysis) -> PlanReview {
 
     let decision = if !blockers.is_empty() {
         PlanReviewDecision::Block
-    } else if analysis.risk_assessment.level == RiskLevel::High || !warnings.is_empty() {
+    } else if analysis.risk_assessment.level == RiskLevel::High
+        || !warnings.is_empty()
+        || analysis
+            .resource_changes
+            .iter()
+            .any(|change| change.action != "no-op" && change.action != "read")
+        || analysis
+            .output_changes
+            .values()
+            .any(|change| change["actions"] != serde_json::json!(["no-op"]))
+    {
         PlanReviewDecision::ReviewRequired
     } else {
         PlanReviewDecision::Approve
@@ -73,7 +91,7 @@ pub fn review_plan(analysis: &PlanAnalysis) -> PlanReview {
         analysis.summary.replace
     );
 
-    let markdown = render_plan_review_markdown(
+    let mut markdown = render_plan_review_markdown(
         &decision,
         &summary,
         analysis,
@@ -82,6 +100,18 @@ pub fn review_plan(analysis: &PlanAnalysis) -> PlanReview {
         &destructive_changes,
         &replacement_changes,
     );
+    let changed_outputs: Vec<String> = analysis
+        .output_changes
+        .iter()
+        .filter(|(_, change)| change["actions"] != serde_json::json!(["no-op"]))
+        .map(|(name, _)| name.clone())
+        .collect();
+    if !changed_outputs.is_empty() {
+        markdown.push_str("\n\n### Changed Outputs\n");
+        for name in &changed_outputs {
+            markdown.push_str(&format!("- `{name}`\n"));
+        }
+    }
 
     PlanReview {
         decision,
@@ -93,6 +123,7 @@ pub fn review_plan(analysis: &PlanAnalysis) -> PlanReview {
         recommendations: analysis.risk_assessment.recommendations.clone(),
         destructive_changes,
         replacement_changes,
+        changed_outputs,
         markdown,
     }
 }
@@ -215,6 +246,8 @@ mod tests {
                 resource_type: "aws_s3_bucket".to_string(),
                 provider: "registry.terraform.io/hashicorp/aws".to_string(),
                 action: action.to_string(),
+                actions: vec![action.to_string()],
+                replace_paths: Vec::new(),
                 before: None,
                 after: None,
                 after_unknown: None,
@@ -228,6 +261,8 @@ mod tests {
             dependency_impacts: Vec::<DependencyImpact>::new(),
             terraform_version: Some("1.6.0".to_string()),
             format_version: Some("1.2".to_string()),
+            detailed: true,
+            output_changes: serde_json::Map::new(),
         }
     }
 }

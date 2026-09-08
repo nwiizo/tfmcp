@@ -606,7 +606,7 @@ pub const SERVER_INSTRUCTIONS: &str = r#"tfmcp is a Terraform MCP server for loc
 ## Tool Categories
 
 ### Terraform Operations (local CLI)
-Start with `init_terraform`, then `validate_terraform` to check syntax, `get_terraform_plan` to preview changes, and `apply_terraform` to execute. Use `terraform_fmt` to auto-format code.
+Start with `prepare_terraform_change` to inspect execution prerequisites. Use `init_terraform` when required, then `get_terraform_plan` to save a plan. Reuse the returned `plan_id` for analysis, review, PR summaries, and apply. Use `terraform_fmt` to format code.
 
 ### Configuration Analysis
 Use `analyze_terraform` for a project overview (resources, variables, outputs, providers). Use `analyze_module_health` for cohesion/coupling metrics and `get_resource_dependency_graph` for dependency visualization. `suggest_module_refactoring` provides improvement suggestions.
@@ -615,21 +615,24 @@ Use `analyze_terraform` for a project overview (resources, variables, outputs, p
 Use `search_terraform_providers` or `search_terraform_modules` to discover available options. Then `get_provider_info`, `get_provider_docs`, or `get_provider_capabilities` for details. Use `search_policies` to find compliance policies.
 
 ### State & Plan Analysis
-Use `analyze_plan` for risk scoring before apply. Use `analyze_state` for state inspection and drift detection.
+Use `analyze_plan` and `review_terraform_plan` with the saved `plan_id` before apply. Use `analyze_state` for state inspection and heuristic drift candidates; use `get_terraform_plan` with `refresh_only:true` for a refresh-only preview that does not write state.
 
 ### Security
 Use `get_security_status` to check security policy, secret detection results, and compliance score.
 
 ## Recommended Workflows
 
-1. **New project**: init → validate → analyze → plan → (review) → apply
+1. **Local change**: prepare → init if needed → saved plan → review the same plan_id → client approval → apply that plan_id → check success and state_verified
 2. **Code review**: analyze_module_health → validate_terraform_detailed → analyze_plan
 3. **Provider discovery**: search_providers → get_provider_capabilities → get_provider_docs
 4. **Compliance check**: get_security_status → search_policies → analyze_module_health
 
 ## Safety
 - `apply_terraform` and `destroy_terraform` require `TFMCP_ALLOW_DANGEROUS_OPS=true`
-- Always run `validate_terraform` and `get_terraform_plan` before applying
+- Saved-plan apply also requires `TFMCP_ALLOW_AUTO_APPROVE=true`, `auto_approve:true`, and a `plan_id`. Terraform never prompts for approval in this workflow.
+- A review decision is advisory; it does not authorize execution.
+- Plans are bound to the selected target, cannot be retried after an attempt, and expire when the server restarts. Retrieve their final status with `get_terraform_plan` and `plan_id`.
+- After a failed or interrupted write, inspect state and generate a new plan before continuing.
 - Use `terraform_import` with `execute: false` to preview before importing
 "#;
 

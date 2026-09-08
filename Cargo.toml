@@ -1,6 +1,6 @@
 [package]
 name = "tfmcp"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 authors = ["nwiizo <syu.m.5151@gmail.com>"]
 description = "Terraform Model Context Protocol Tool - A CLI tool to manage Terraform through MCP"
@@ -32,6 +32,7 @@ tokio = { version = "1.50", features = ["full"] }
 dirs = "6.0"
 tempfile = "3.27"
 regex = "1.12"
+ring = "0.17"
 reqwest = { version = "0.13", default-features = false, features = [
   "json",
   "query",

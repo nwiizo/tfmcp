@@ -9,8 +9,9 @@ pub use registry::{
     ProviderCapabilitiesInput, ProviderDocsInput, ProviderInput, SearchQueryInput,
 };
 pub use terraform::{
-    AnalyzeInput, AnalyzePlanInput, AnalyzeStateInput, AutoApproveInput, DirectoryInput, FmtInput,
-    GraphInput, ImportInput, OutputInput, ProvidersInput, RefreshInput, TaintInput, WorkspaceInput,
+    AnalyzeInput, AnalyzePlanInput, AnalyzeStateInput, ApplyPlanInput, AutoApproveInput,
+    DirectoryInput, FmtInput, GraphInput, ImportInput, OutputInput, PlanInput, PlanReferenceInput,
+    ProvidersInput, RefreshInput, TaintInput, WorkspaceInput,
 };
 pub use tfe::{
     TfeActionRunInput, TfeApplyInput, TfeAttachPolicySetInput, TfeCreateRunInput,

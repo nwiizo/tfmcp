@@ -35,6 +35,7 @@ pub struct TerraformChangePreparation {
     pub warnings: Vec<String>,
     pub recommended_sequence: Vec<String>,
     pub markdown: String,
+    pub execution: Option<super::preflight::ExecutionPreflight>,
 }
 
 pub fn inspect_state_safety(
@@ -71,6 +72,7 @@ pub fn inspect_state_safety(
                 )
             }
             Err(error) => {
+                blockers.push("Terraform state could not be checked".to_string());
                 warnings.push(format!("State could not be read: {error}"));
                 recommendations.push(
                     "Run terraform init and ensure the selected workspace has readable state"
@@ -106,6 +108,41 @@ pub fn inspect_state_safety(
         recommendations,
         markdown,
     }
+}
+
+pub fn prepare_local_change(
+    mut inspection: StateSafetyInspection,
+    execution: super::preflight::ExecutionPreflight,
+) -> TerraformChangePreparation {
+    // Terraform's schemas identify whether this project requires external providers.
+    // Built-in-only projects legitimately have no provider lockfile.
+    if execution.provider_lockfile_required == Some(false) {
+        inspection
+            .blockers
+            .retain(|blocker| blocker != "Provider lockfile .terraform.lock.hcl is missing");
+        inspection
+            .warnings
+            .retain(|warning| warning != "Provider lockfile .terraform.lock.hcl is missing");
+    }
+    inspection.blockers.extend(execution.blockers.clone());
+    inspection.warnings.extend(execution.warnings.clone());
+    let mut preparation = prepare_change(inspection);
+    preparation.ready &= execution.ready;
+    preparation.recommended_sequence = vec![
+        "get_terraform_plan (supply var_files when needed)".to_string(),
+        "review_terraform_plan with the returned plan_id".to_string(),
+        "apply_terraform with the same plan_id after approval".to_string(),
+        "inspect the apply result and state_verified".to_string(),
+    ];
+    preparation.markdown = safety_markdown(
+        "Terraform Local Execution Preparation",
+        &preparation.project_directory,
+        &preparation.blockers,
+        &preparation.warnings,
+        &preparation.recommended_sequence,
+    );
+    preparation.execution = Some(execution);
+    preparation
 }
 
 pub fn drift_candidates(
@@ -158,6 +195,7 @@ pub fn prepare_change(inspection: StateSafetyInspection) -> TerraformChangePrepa
         warnings: inspection.warnings,
         recommended_sequence,
         markdown,
+        execution: None,
     }
 }
 
@@ -242,6 +280,17 @@ mod tests {
                 .markdown
                 .contains("Terraform Change Preparation")
         );
-        assert!(preparation.blockers[0].contains("Provider lockfile"));
+        assert!(
+            preparation
+                .blockers
+                .iter()
+                .any(|blocker| blocker.contains("Provider lockfile"))
+        );
+        assert!(
+            preparation
+                .blockers
+                .iter()
+                .any(|blocker| blocker.contains("state could not be checked"))
+        );
     }
 }

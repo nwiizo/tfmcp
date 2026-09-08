@@ -109,8 +109,9 @@ fn description_spec(kind: ToolDescriptionKind) -> DescriptionSpec {
     match kind {
         ToolDescriptionKind::TerraformPlan => DescriptionSpec {
             summary: "Execute 'terraform plan' to show changes that would be made to infrastructure",
-            usage_guide: "This tool generates an execution plan showing what Terraform will do when you apply \
-                the configuration. It's a safe operation that doesn't make any changes to real infrastructure.",
+            usage_guide: "Generate a saved local plan and keep its plan_id. Pass that ID to analysis, review, \
+                PR summaries, and apply to reuse exactly the same plan. Sensitive values are redacted. \
+                An existing plan_id retrieves its result and status without replanning.",
             constraints: vec![
                 "Terraform must be initialized in the target directory",
                 "Valid Terraform configuration files must exist",
@@ -139,10 +140,13 @@ fn description_spec(kind: ToolDescriptionKind) -> DescriptionSpec {
         },
         ToolDescriptionKind::TerraformApply => DescriptionSpec {
             summary: "Apply Terraform configuration to create, update, or delete infrastructure resources",
-            usage_guide: "This tool executes the changes shown in a terraform plan. It will modify real infrastructure \
-                according to your configuration. Always review the plan before applying changes.",
+            usage_guide: "Apply the reviewed saved plan_id without replanning. Approval takes place in the client; \
+                Terraform does not prompt interactively. Inspect success, exit_code, diagnostics, and state_verified \
+                afterward. A previously attempted plan cannot be retried.",
             constraints: vec![
                 "TFMCP_ALLOW_DANGEROUS_OPS must be set to true",
+                "TFMCP_ALLOW_AUTO_APPROVE must be set to true and auto_approve must be true",
+                "A saved plan_id for the selected project, workspace, and backend is required",
                 "Terraform must be initialized",
                 "Valid configuration files must exist",
             ],
@@ -162,22 +166,14 @@ fn description_spec(kind: ToolDescriptionKind) -> DescriptionSpec {
                 "All apply operations are logged for audit purposes",
                 "Production directory patterns are automatically blocked",
             ],
-            examples: vec![
-                ToolExample {
-                    title: "Apply with Manual Approval".to_string(),
-                    description: "Apply changes with interactive approval".to_string(),
-                    input: json!({"auto_approve": false}),
-                    expected_output: "Terraform apply output showing resources created/modified"
-                        .to_string(),
-                },
-                ToolExample {
-                    title: "Auto-approved Apply".to_string(),
-                    description: "Apply changes automatically without manual confirmation"
-                        .to_string(),
-                    input: json!({"auto_approve": true}),
-                    expected_output: "Terraform apply output with automatic approval".to_string(),
-                },
-            ],
+            examples: vec![ToolExample {
+                title: "Apply a Reviewed Saved Plan".to_string(),
+                description: "After client approval, apply the ID returned by plan generation"
+                    .to_string(),
+                input: json!({"plan_id": "<returned plan_id>", "auto_approve": true}),
+                expected_output: "Structured apply result with exit code and state verification"
+                    .to_string(),
+            }],
         },
         ToolDescriptionKind::TerraformValidate => DescriptionSpec {
             summary: "Validate Terraform configuration files for syntax and semantic correctness",

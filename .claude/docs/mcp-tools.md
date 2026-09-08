@@ -23,6 +23,23 @@ Successful JSON-producing tools return both text JSON for legacy clients and
 the same value in `structuredContent`. Tool and resource metadata carries a
 five-minute public cache hint.
 
+## Local execution
+
+`prepare_terraform_change` reports native validation, provider requirements,
+workspace/backend identity, and absent/unreadable state. `ready` covers these
+prerequisites only; required input values are resolved by the actual plan.
+
+`get_terraform_plan` saves a plan and returns an opaque `plan_id`. Use the same ID
+for `analyze_plan`, `review_terraform_plan`, `summarize_plan_for_pr`, and
+`apply_terraform`. The plan tool also retrieves an existing ID's result/status.
+Planning options include `var_files`, `replace`, and `refresh_only`.
+
+Apply requires the ID, `auto_approve=true`, and both existing local write gates.
+It does not replan, refuses changed targets and previously attempted plans, and
+returns structured failures with `isError=true`. Plans are process-local, with
+private temporary files and a 64-plan retention limit. There is no live progress
+or restart recovery; an interrupted attempt may have `outcome_unknown` status.
+
 ## MCP resources
 
 - `terraform://style-guide` and `/terraform/style-guide`

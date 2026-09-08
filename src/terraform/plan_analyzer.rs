@@ -20,6 +20,11 @@ pub struct ResourceChange {
     pub resource_type: String,
     pub provider: String,
     pub action: String,
+    /// Preserve Terraform's action ordering, including create-before-destroy.
+    #[serde(default)]
+    pub actions: Vec<String>,
+    #[serde(default)]
+    pub replace_paths: Vec<Vec<serde_json::Value>>,
     pub before: Option<serde_json::Value>,
     pub after: Option<serde_json::Value>,
     pub after_unknown: Option<serde_json::Value>,
@@ -61,6 +66,11 @@ pub struct PlanAnalysis {
     pub dependency_impacts: Vec<DependencyImpact>,
     pub terraform_version: Option<String>,
     pub format_version: Option<String>,
+    /// False for CLI event streams, which omit attribute-level changes.
+    #[serde(default)]
+    pub detailed: bool,
+    #[serde(default)]
+    pub output_changes: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Terraform plan JSON output structure
@@ -69,10 +79,10 @@ struct TerraformPlanJson {
     format_version: Option<String>,
     terraform_version: Option<String>,
     resource_changes: Option<Vec<PlanResourceChange>>,
-    #[allow(dead_code)]
-    prior_state: Option<serde_json::Value>,
-    #[allow(dead_code)]
-    configuration: Option<serde_json::Value>,
+    #[serde(skip)]
+    detailed: bool,
+    #[serde(default)]
+    output_changes: HashMap<String, PlanChange>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,6 +100,10 @@ struct PlanChange {
     before: Option<serde_json::Value>,
     after: Option<serde_json::Value>,
     after_unknown: Option<serde_json::Value>,
+    before_sensitive: Option<serde_json::Value>,
+    after_sensitive: Option<serde_json::Value>,
+    #[serde(default)]
+    replace_paths: Vec<Vec<serde_json::Value>>,
 }
 
 /// High-risk resource types that require extra caution
@@ -153,8 +167,24 @@ pub fn analyze_plan(plan_json: &str, include_risk: bool) -> anyhow::Result<PlanA
                     .provider_name
                     .unwrap_or_else(|| "unknown".to_string()),
                 action: action.clone(),
-                before: change.change.as_ref().and_then(|c| c.before.clone()),
-                after: change.change.as_ref().and_then(|c| c.after.clone()),
+                actions: change
+                    .change
+                    .as_ref()
+                    .map(|change| change.actions.clone())
+                    .unwrap_or_default(),
+                replace_paths: change
+                    .change
+                    .as_ref()
+                    .map(|change| change.replace_paths.clone())
+                    .unwrap_or_default(),
+                before: change
+                    .change
+                    .as_ref()
+                    .and_then(|c| redact_value(c.before.clone(), c.before_sensitive.as_ref())),
+                after: change
+                    .change
+                    .as_ref()
+                    .and_then(|c| redact_value(c.after.clone(), c.after_sensitive.as_ref())),
                 after_unknown: change.change.as_ref().and_then(|c| c.after_unknown.clone()),
             };
             resource_changes.push(rc);
@@ -181,13 +211,57 @@ pub fn analyze_plan(plan_json: &str, include_risk: bool) -> anyhow::Result<PlanA
         dependency_impacts,
         terraform_version: plan.terraform_version,
         format_version: plan.format_version,
+        detailed: plan.detailed,
+        output_changes: plan
+            .output_changes
+            .into_iter()
+            .map(|(name, change)| {
+                (
+                    name,
+                    serde_json::json!({
+                        "actions": change.actions,
+                        "before": redact_value(change.before, change.before_sensitive.as_ref()),
+                        "after": redact_value(change.after, change.after_sensitive.as_ref()),
+                        "after_unknown": change.after_unknown,
+                    }),
+                )
+            })
+            .collect(),
     })
 }
 
 /// Parse terraform plan JSON (handles both single JSON and NDJSON format)
 fn parse_plan_json(json_str: &str) -> anyhow::Result<TerraformPlanJson> {
-    // First try to parse as a single JSON object
-    if let Ok(plan) = serde_json::from_str::<TerraformPlanJson>(json_str) {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str)
+        && value.get("format_version").is_some()
+    {
+        anyhow::ensure!(
+            value["format_version"]
+                .as_str()
+                .is_some_and(|version| version.starts_with("1.")),
+            "Unsupported Terraform plan format version"
+        );
+        anyhow::ensure!(
+            value.get("planned_values").is_some()
+                || value.get("resource_changes").is_some()
+                || value.get("output_changes").is_some(),
+            "JSON does not contain a Terraform plan"
+        );
+        anyhow::ensure!(
+            value["errored"] != true && value["complete"] != false,
+            "Terraform plan is errored or incomplete"
+        );
+        let mut plan: TerraformPlanJson = serde_json::from_value(value)?;
+        if let Some(changes) = &plan.resource_changes {
+            anyhow::ensure!(
+                changes.iter().all(|change| change
+                    .change
+                    .as_ref()
+                    .is_some_and(|change| !change.actions.is_empty())),
+                "Terraform plan contains a resource without change details"
+            );
+        }
+        plan.detailed = true;
         return Ok(plan);
     }
 
@@ -196,32 +270,49 @@ fn parse_plan_json(json_str: &str) -> anyhow::Result<TerraformPlanJson> {
     let mut resource_changes = Vec::new();
     let mut terraform_version = None;
     let mut format_version = None;
+    let mut complete = false;
 
     for line in json_str.lines() {
         if line.trim().is_empty() {
             continue;
         }
 
-        if let Ok(obj) = serde_json::from_str::<serde_json::Value>(line) {
+        let obj: serde_json::Value = serde_json::from_str(line)
+            .map_err(|_| anyhow::anyhow!("Invalid Terraform plan JSON event"))?;
+        {
             // Check if this is a version message
-            if let Some(v) = obj.get("terraform_version").and_then(|v| v.as_str()) {
+            if let Some(v) = obj.get("terraform").and_then(|v| v.as_str()) {
                 terraform_version = Some(v.to_string());
             }
-            if let Some(v) = obj.get("format_version").and_then(|v| v.as_str()) {
+            if let Some(v) = obj.get("ui").and_then(|v| v.as_str()) {
                 format_version = Some(v.to_string());
             }
 
-            // Check if this is a resource_drift or planned_change message
-            if let Some(change_type) = obj.get("type").and_then(|t| t.as_str())
-                && (change_type == "planned_change" || change_type == "resource_drift")
-                && let Some(change) = obj.get("change")
-                && let Ok(rc) = serde_json::from_value::<PlanResourceChange>(change.clone())
-            {
-                resource_changes.push(rc);
+            match obj["type"].as_str() {
+                Some("diagnostic") if obj["diagnostic"]["severity"] == "error" => {
+                    anyhow::bail!("Terraform reported an error while planning");
+                }
+                Some("change_summary") if obj["changes"]["operation"] == "plan" => {
+                    for key in ["add", "change", "remove"] {
+                        anyhow::ensure!(
+                            obj["changes"][key].as_u64().is_some(),
+                            "Invalid Terraform plan change summary"
+                        );
+                    }
+                    complete = true;
+                }
+                Some("planned_change") => {
+                    resource_changes.push(parse_change_event(&obj["change"])?)
+                }
+                _ => {}
             }
         }
     }
 
+    anyhow::ensure!(
+        complete,
+        "Terraform plan event stream is missing its completed plan summary"
+    );
     Ok(TerraformPlanJson {
         format_version,
         terraform_version,
@@ -230,9 +321,103 @@ fn parse_plan_json(json_str: &str) -> anyhow::Result<TerraformPlanJson> {
         } else {
             Some(resource_changes)
         },
-        prior_state: None,
-        configuration: None,
+        detailed: false,
+        output_changes: HashMap::new(),
     })
+}
+
+fn parse_change_event(value: &serde_json::Value) -> anyhow::Result<PlanResourceChange> {
+    let required = |value: &serde_json::Value| {
+        value
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| anyhow::anyhow!("Incomplete Terraform planned_change event"))
+    };
+    let action = required(&value["action"])?;
+    let actions = match action.as_str() {
+        "replace" => vec!["delete".to_string(), "create".to_string()],
+        "noop" => vec!["no-op".to_string()],
+        "create" | "update" | "delete" | "read" | "move" | "import" => vec![action],
+        _ => anyhow::bail!("Unsupported Terraform plan action"),
+    };
+    Ok(PlanResourceChange {
+        address: required(&value["resource"]["addr"])?,
+        resource_type: required(&value["resource"]["resource_type"])?,
+        provider_name: value["resource"]["implied_provider"]
+            .as_str()
+            .map(str::to_owned),
+        change: Some(PlanChange {
+            actions,
+            before: None,
+            after: None,
+            after_unknown: None,
+            before_sensitive: None,
+            after_sensitive: None,
+            replace_paths: Vec::new(),
+        }),
+    })
+}
+
+impl PlanAnalysis {
+    /// A redacted Terraform-compatible plan JSON view without variables, configuration, or prior state.
+    pub fn to_plan_json(&self) -> anyhow::Result<String> {
+        anyhow::ensure!(
+            self.detailed,
+            "A saved plan is required for attribute-level plan JSON"
+        );
+        let changes: Vec<_> = self
+            .resource_changes
+            .iter()
+            .map(|change| {
+                serde_json::json!({
+                    "address": change.address,
+                    "type": change.resource_type,
+                    "provider_name": change.provider,
+                    "change": {
+                        "actions": change.actions,
+                        "before": change.before,
+                        "after": change.after,
+                        "after_unknown": change.after_unknown,
+                        "replace_paths": change.replace_paths,
+                    }
+                })
+            })
+            .collect();
+        Ok(serde_json::to_string(&serde_json::json!({
+            "format_version": self.format_version,
+            "terraform_version": self.terraform_version,
+            "resource_changes": changes,
+            "output_changes": self.output_changes,
+        }))?)
+    }
+}
+
+/// Apply Terraform's sensitivity tree before values leave the server.
+pub(super) fn redact_value(
+    value: Option<serde_json::Value>,
+    sensitive: Option<&serde_json::Value>,
+) -> Option<serde_json::Value> {
+    use serde_json::Value;
+    let mut value = value?;
+    match (sensitive, &mut value) {
+        (Some(Value::Bool(true)), _) => value = Value::String("[sensitive]".to_string()),
+        (Some(Value::Object(mask)), Value::Object(fields)) => {
+            for (key, field) in fields {
+                if let Some(redacted) = redact_value(Some(field.take()), mask.get(key)) {
+                    *field = redacted;
+                }
+            }
+        }
+        (Some(Value::Array(mask)), Value::Array(fields)) => {
+            for (index, field) in fields.iter_mut().enumerate() {
+                if let Some(redacted) = redact_value(Some(field.take()), mask.get(index)) {
+                    *field = redacted;
+                }
+            }
+        }
+        _ => {}
+    }
+    Some(value)
 }
 
 /// Convert action array to a single action string
@@ -461,6 +646,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn real_plan_events_preserve_changes() -> anyhow::Result<()> {
+        let output = concat!(
+            "{\"type\":\"version\",\"terraform\":\"1.15.8\",\"ui\":\"1.2\"}\n",
+            "{\"type\":\"planned_change\",\"change\":{\"resource\":{\"addr\":\"terraform_data.example\",\"resource_type\":\"terraform_data\",\"implied_provider\":\"terraform\"},\"action\":\"create\"}}\n",
+            "{\"type\":\"change_summary\",\"changes\":{\"add\":1,\"change\":0,\"remove\":0,\"operation\":\"plan\"}}\n"
+        );
+        let analysis = analyze_plan(output, true)?;
+        assert_eq!(analysis.summary.add, 1);
+        assert_eq!(
+            analysis.resource_changes[0].address,
+            "terraform_data.example"
+        );
+        assert_eq!(analysis.terraform_version.as_deref(), Some("1.15.8"));
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_or_incomplete_plan_is_not_an_empty_plan() {
+        for output in [
+            "",
+            "not json",
+            "{}",
+            "{\"type\":\"version\",\"terraform\":\"1.15.8\",\"ui\":\"1.2\"}",
+            "{\"format_version\":\"99.0\",\"planned_values\":{}}",
+            "{\"type\":\"planned_change\",\"change\":{\"action\":\"create\"}}\n{\"type\":\"change_summary\",\"changes\":{\"add\":1,\"change\":0,\"remove\":0,\"operation\":\"plan\"}}",
+        ] {
+            assert!(analyze_plan(output, true).is_err(), "accepted: {output}");
+        }
+    }
+
+    #[test]
+    fn error_diagnostics_cannot_be_reviewed_as_successful_plan() {
+        let output = concat!(
+            "{\"type\":\"diagnostic\",\"diagnostic\":{\"severity\":\"error\",\"summary\":\"No value for required variable\"}}\n",
+            "{\"type\":\"change_summary\",\"changes\":{\"add\":0,\"change\":0,\"remove\":0,\"operation\":\"plan\"}}"
+        );
+        assert!(analyze_plan(output, true).is_err());
+    }
+
+    #[test]
     fn test_actions_to_string() {
         assert_eq!(actions_to_string(&[]), "no-op");
         assert_eq!(actions_to_string(&["create".to_string()]), "create");
@@ -486,6 +711,8 @@ mod tests {
             resource_type: "aws_instance".to_string(),
             provider: "aws".to_string(),
             action: "delete".to_string(),
+            actions: vec!["delete".to_string()],
+            replace_paths: Vec::new(),
             before: None,
             after: None,
             after_unknown: None,
@@ -505,6 +732,8 @@ mod tests {
             resource_type: "aws_db_instance".to_string(),
             provider: "aws".to_string(),
             action: "delete".to_string(),
+            actions: vec!["delete".to_string()],
+            replace_paths: Vec::new(),
             before: None,
             after: None,
             after_unknown: None,

@@ -282,6 +282,32 @@ impl TfMcp {
         self.terraform_service.get_plan().await
     }
 
+    pub async fn saved_plan(
+        &self,
+        plan_id: Option<&str>,
+        options: &crate::terraform::saved_plan::PlanOptions,
+    ) -> anyhow::Result<crate::terraform::saved_plan::PlanSnapshot> {
+        if let Some(plan_id) = plan_id {
+            anyhow::ensure!(
+                options.var_files.is_empty() && options.replace.is_empty() && !options.refresh_only,
+                "A saved plan_id cannot be combined with new planning options"
+            );
+            self.terraform_service.read_saved_plan(plan_id).await
+        } else {
+            self.terraform_service.create_saved_plan(options).await
+        }
+    }
+
+    pub async fn apply_saved_plan(
+        &self,
+        plan_id: &str,
+        auto_approve: bool,
+    ) -> anyhow::Result<crate::terraform::saved_plan::ApplyResult> {
+        self.terraform_service
+            .apply_saved_plan(plan_id, auto_approve)
+            .await
+    }
+
     pub async fn apply_terraform(&self, auto_approve: bool) -> anyhow::Result<String> {
         self.terraform_service.apply(auto_approve).await
     }
@@ -679,7 +705,10 @@ impl TfMcp {
 
     pub async fn prepare_terraform_change(&self) -> anyhow::Result<TerraformChangePreparation> {
         let inspection = self.inspect_state_safety().await?;
-        Ok(crate::terraform::state_safety::prepare_change(inspection))
+        let execution = self.terraform_service.inspect_execution().await?;
+        Ok(crate::terraform::state_safety::prepare_local_change(
+            inspection, execution,
+        ))
     }
 }
 

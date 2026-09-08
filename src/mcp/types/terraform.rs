@@ -16,6 +16,37 @@ pub struct AutoApproveInput {
     pub auto_approve: bool,
 }
 
+/// Create a saved plan, or retrieve an existing plan without re-running Terraform.
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+pub struct PlanInput {
+    /// Existing plan ID returned by get_terraform_plan or review_terraform_plan.
+    pub plan_id: Option<String>,
+    /// Variable files, resolved relative to the selected project directory.
+    #[serde(default)]
+    pub var_files: Vec<String>,
+    /// Resource addresses to replace in the saved plan.
+    #[serde(default)]
+    pub replace: Vec<String>,
+    /// Preview externally changed objects without changing state.
+    #[serde(default)]
+    pub refresh_only: bool,
+}
+
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+pub struct PlanReferenceInput {
+    /// Reuse this saved plan. Omitting it creates a new plan; pass the returned ID to subsequent tools.
+    pub plan_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ApplyPlanInput {
+    /// Saved plan to apply, returned by get_terraform_plan or review_terraform_plan.
+    pub plan_id: Option<String>,
+    /// Explicit approval of the saved plan; also requires both dangerous-operation environment gates.
+    #[serde(default)]
+    pub auto_approve: bool,
+}
+
 /// Input for analyze_terraform operation
 #[derive(Debug, Deserialize, JsonSchema)]
 #[allow(dead_code)]
@@ -27,6 +58,8 @@ pub struct AnalyzeInput {
 /// Input for analyze_plan operation
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct AnalyzePlanInput {
+    /// Reuse this saved plan instead of generating another plan.
+    pub plan_id: Option<String>,
     /// Include risk assessment in the analysis (default: true)
     #[serde(default = "default_true")]
     pub include_risk: bool,

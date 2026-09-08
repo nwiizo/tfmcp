@@ -1,3 +1,6 @@
+mod local;
+
+use super::saved_plan::PlanStore;
 use crate::shared::security::SecurityManager;
 use crate::terraform::analyzer;
 use crate::terraform::model::core::TerraformAnalysis;
@@ -11,11 +14,13 @@ use crate::terraform::parser::TerraformParser;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use tokio::sync::Mutex;
 
 pub struct TerraformService {
     terraform_path: PathBuf,
     project_directory: PathBuf,
     security_manager: SecurityManager,
+    saved_plans: Mutex<PlanStore>,
 }
 
 impl TerraformService {
@@ -37,6 +42,7 @@ impl TerraformService {
             terraform_path,
             project_directory,
             security_manager,
+            saved_plans: Mutex::new(PlanStore::default()),
         }
     }
 
@@ -53,11 +59,8 @@ impl TerraformService {
         &self.project_directory
     }
 
-    fn run_terraform(&self, args: &[&str]) -> anyhow::Result<Output> {
-        Ok(Command::new(&self.terraform_path)
-            .args(args)
-            .current_dir(&self.project_directory)
-            .output()?)
+    async fn run_terraform(&self, args: &[&str]) -> anyhow::Result<Output> {
+        super::execution::run(&self.terraform_path, &self.project_directory, args).await
     }
 
     fn output_stdout(output: &Output) -> String {
@@ -68,8 +71,12 @@ impl TerraformService {
         String::from_utf8_lossy(&output.stderr).to_string()
     }
 
-    fn run_terraform_stdout(&self, args: &[&str], error_prefix: &str) -> anyhow::Result<String> {
-        let output = self.run_terraform(args)?;
+    async fn run_terraform_stdout(
+        &self,
+        args: &[&str],
+        error_prefix: &str,
+    ) -> anyhow::Result<String> {
+        let output = self.run_terraform(args).await?;
 
         if output.status.success() {
             Ok(Self::output_stdout(&output))
@@ -77,7 +84,7 @@ impl TerraformService {
             Err(anyhow::anyhow!(
                 "{}: {}",
                 error_prefix,
-                Self::output_stderr(&output)
+                super::execution::diagnostics(&output).join("; ")
             ))
         }
     }
@@ -114,99 +121,15 @@ impl TerraformService {
     }
 
     pub async fn init(&self) -> anyhow::Result<String> {
-        self.run_terraform_stdout(&["init"], "Terraform init failed")
-    }
-
-    pub async fn get_plan(&self) -> anyhow::Result<String> {
-        let output = self.run_terraform(&["plan", "-json"])?;
-
-        if output.status.success() {
-            Ok(Self::output_stdout(&output))
-        } else {
-            let stderr = Self::output_stderr(&output);
-            if stderr.contains("terraform init") {
-                Err(anyhow::anyhow!(
-                    "Terraform initialization required. Please run 'terraform init' first."
-                ))
-            } else {
-                Err(anyhow::anyhow!("Terraform plan failed: {stderr}"))
-            }
-        }
-    }
-
-    pub async fn apply(&self, auto_approve: bool) -> anyhow::Result<String> {
-        // Security checks
-        if !self.security_manager.is_command_allowed("apply") {
-            return Err(anyhow::anyhow!(
-                "Apply operation blocked by security policy. Set TFMCP_ALLOW_DANGEROUS_OPS=true to enable."
-            ));
-        }
-
-        if auto_approve && !self.security_manager.is_auto_approve_allowed("apply") {
-            return Err(anyhow::anyhow!(
-                "Auto-approve for apply operation blocked by security policy. Set TFMCP_ALLOW_AUTO_APPROVE=true to enable."
-            ));
-        }
-
-        // Validate directory security
-        self.security_manager
-            .validate_directory(&self.project_directory)?;
-
-        // Check resource limits
-        if let Ok(resources) = self.list_resources().await {
-            self.security_manager
-                .check_resource_limit(resources.len())?;
-        }
-
-        let mut cmd = Command::new(&self.terraform_path);
-        cmd.arg("apply");
-
-        if auto_approve {
-            cmd.arg("-auto-approve");
-        }
-
-        let command_args = vec!["terraform".to_string(), "apply".to_string()];
-        let output = cmd.current_dir(&self.project_directory).output()?;
-        let success = output.status.success();
-
-        // Log audit entry
-        let error_msg = if !success {
-            Some(String::from_utf8_lossy(&output.stderr).to_string())
-        } else {
-            None
-        };
-
-        let resource_count = if success {
-            self.list_resources().await.ok().map(|r| r.len())
-        } else {
-            None
-        };
-
-        let audit_entry = self.security_manager.create_audit_entry(
-            "apply",
-            &self.project_directory.to_string_lossy(),
-            &command_args,
-            success,
-            error_msg.clone(),
-            resource_count,
-        );
-
-        if let Err(e) = self.security_manager.log_audit_entry(audit_entry) {
-            eprintln!("[WARN] Failed to log audit entry: {e}");
-        }
-
-        if success {
-            Ok(String::from_utf8_lossy(&output.stdout).to_string())
-        } else {
-            Err(anyhow::anyhow!(
-                "Terraform apply failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ))
-        }
+        self.run_terraform_stdout(
+            &["init", "-input=false", "-no-color"],
+            "Terraform init failed",
+        )
+        .await
     }
 
     pub async fn get_state(&self) -> anyhow::Result<String> {
-        let output = self.run_terraform(&["state", "list"])?;
+        let output = self.run_terraform(&["state", "list"]).await?;
 
         if output.status.success() {
             Ok(Self::output_stdout(&output))
@@ -222,6 +145,7 @@ impl TerraformService {
     #[allow(dead_code)]
     pub async fn refresh(&self) -> anyhow::Result<String> {
         self.run_terraform_stdout(&["refresh"], "Terraform refresh failed")
+            .await
     }
 
     #[allow(dead_code)]
@@ -250,7 +174,7 @@ impl TerraformService {
     }
 
     pub async fn list_resources(&self) -> anyhow::Result<Vec<String>> {
-        let output = self.run_terraform(&["state", "list"])?;
+        let output = self.run_terraform(&["state", "list"]).await?;
 
         if !output.status.success() {
             let stderr = Self::output_stderr(&output);
@@ -272,6 +196,7 @@ impl TerraformService {
 
     pub async fn validate(&self) -> anyhow::Result<String> {
         self.run_terraform_stdout(&["validate", "-json"], "Terraform validate failed")
+            .await
     }
 
     pub async fn validate_detailed(&self) -> anyhow::Result<DetailedValidationResult> {
@@ -744,21 +669,6 @@ impl TerraformService {
     }
 
     // ==================== New v0.1.9 Methods ====================
-
-    /// Analyze terraform plan output with risk scoring
-    pub async fn analyze_plan(
-        &self,
-        include_risk: bool,
-    ) -> anyhow::Result<super::plan_analyzer::PlanAnalysis> {
-        eprintln!(
-            "[DEBUG] Analyzing terraform plan in {}",
-            self.project_directory.display()
-        );
-
-        // Get plan JSON
-        let plan_json = self.get_plan().await?;
-        super::plan_analyzer::analyze_plan(&plan_json, include_risk)
-    }
 
     /// Analyze terraform state with optional drift detection
     pub async fn analyze_state(

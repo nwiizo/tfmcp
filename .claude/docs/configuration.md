@@ -7,6 +7,7 @@ focused on agent-relevant defaults and trust boundaries.
 | --- | --- | --- |
 | Project | `TERRAFORM_DIR`, `TERRAFORM_BINARY_NAME` | current/configured project, `terraform` |
 | Local safety | `TFMCP_ALLOW_DANGEROUS_OPS`, `TFMCP_ALLOW_AUTO_APPROVE` | `false`, `false` |
+| Local execution | `TFMCP_COMMAND_TIMEOUT_SECONDS` | `900`; positive seconds for init/plan/saved apply/validation/preparation |
 | HCP/TFE | `TFE_ADDRESS`, `TFE_TOKEN`, `TFE_MAX_RESPONSE_BYTES` | HCP Terraform, unset, `65536` |
 | HCP/TFE writes | `ENABLE_TF_OPERATIONS` | `false` |
 | Transport | `TRANSPORT_MODE`, `TRANSPORT_HOST`, `TRANSPORT_PORT` | `stdio`, `127.0.0.1`, `8080` |

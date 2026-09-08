@@ -1,4 +1,5 @@
 pub mod analyzer;
+mod execution;
 pub mod fmt;
 pub mod graph;
 pub mod import_helper;
@@ -7,10 +8,12 @@ pub mod output;
 pub mod parser;
 pub mod plan_analyzer;
 pub mod plan_review;
+pub mod preflight;
 pub mod project;
 pub mod providers;
 pub mod quality;
 pub mod refresh;
+pub mod saved_plan;
 pub mod service;
 pub mod state_analyzer;
 pub mod state_safety;

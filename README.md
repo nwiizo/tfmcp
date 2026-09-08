@@ -4,7 +4,10 @@
 
 *⚠️  This project includes production-ready security features but is still under active development. While the security system provides robust protection, please review all operations carefully in production environments. ⚠️*
 
-tfmcp is a command-line tool that helps you interact with Terraform via the Model Context Protocol (MCP). It allows LLMs to manage and operate your Terraform environments, including:
+tfmcp runs local Terraform workflows through the Model Context Protocol (MCP).
+It helps AI assistants inspect a project, prepare execution, review a saved plan,
+apply that same plan, and check the result. Registry and HCP/TFE tools support
+these local workflows.
 
 ## 🎮 Demo
 
@@ -20,19 +23,19 @@ See tfmcp in action with Claude Desktop:
 
 ## 🎉 Current Release
 
-tfmcp v0.2.2 is the current release:
+tfmcp v0.2.3 is the current release:
 
 ```bash
-cargo install tfmcp --version 0.2.2
+cargo install tfmcp --version 0.2.3
 ```
 
-### What's new in v0.2.2
+### What's new in v0.2.3
 
-- RMCP 3.0.1 and MCP 2026-07-28 discovery support
-- Structured JSON tool results with backward-compatible text content
-- Five-minute public cache hints for tool and resource discovery
-- Sessionless Streamable HTTP behavior for MCP 2026-07-28 clients
-- Capability metadata aligned with the methods tfmcp implements
+- Saved plans shared by analysis, review, PR summaries, and apply
+- Local execution preparation with workspace, backend, validation, and state checks
+- Correct Terraform JSON parsing and sensitive-value redaction
+- Non-interactive execution, timeouts, and structured apply/state verification
+- RMCP 3.1.2 and updated Rust tooling with the Rust 1.88 MSRV retained
 
 ## Features
 
@@ -79,7 +82,7 @@ docker run -it tfmcp
 
 - Rust 1.88.0+ (Rust Edition 2024)
 - Terraform CLI 1.15.8 installed and available in `PATH`
-- Claude Desktop (for AI assistant integration)
+- An MCP-compatible AI client (for example, Claude Desktop or Codex)
 - Docker (optional, for containerized deployment)
 
 ## Usage
@@ -177,6 +180,47 @@ If you're using Docker with Claude Desktop, you can set up the configuration lik
 
 5. tfmcp will automatically create a sample Terraform project in `~/terraform` if one doesn't exist, ensuring Claude can start working with Terraform right away. The sample project is based on the examples included in the `example/demo` directory of this repository.
 
+## Local plan/apply workflow
+
+Start with `tfmcp --dir /path/to/project mcp --toolsets terraform`.
+The default toolset supports preparation and plan review; the `terraform`
+toolset also exposes initialization and gated local writes.
+
+1. Call `prepare_terraform_change` to inspect the selected directory, Terraform
+   version, workspace, backend, configuration validity, and state readability.
+   `ready` means the inspected prerequisites passed; input variables and provider
+   credentials are checked by the actual plan. Initialize with `init_terraform`
+   when required, then repeat preparation.
+2. Call `get_terraform_plan` with `{}` or, for example,
+   `{"var_files":["environment.tfvars"]}`. The result includes a `plan_id`,
+   `target`, `created_at`, `has_changes`, and a redacted Terraform JSON `plan` string.
+   Use `replace` for resource replacement addresses or `refresh_only:true` to
+   preview drift without modifying state.
+3. Pass the returned `plan_id` to `analyze_plan`, `review_terraform_plan`, and
+   `summarize_plan_for_pr`. These calls reuse the saved result. Omitting the ID
+   creates a new plan. A review decision is advisory and does not authorize apply.
+4. After reviewing and approving the change, call `apply_terraform` with
+   `{"plan_id":"<returned ID>","auto_approve":true}`. Both
+   `TFMCP_ALLOW_DANGEROUS_OPS=true` and `TFMCP_ALLOW_AUTO_APPROVE=true` must already
+   be configured on the server. The saved plan determines the applied changes,
+   including when configuration files have subsequently been edited.
+5. Check `success`, `exit_code`, `diagnostics`, and `state_verified` in the apply
+   result. Retrieve the plan's final status with
+   `get_terraform_plan({"plan_id":"<returned ID>"})`. After failure or timeout,
+   inspect state and create a new plan; the attempted ID cannot be applied again.
+
+**Migration from v0.2.2:** `apply_terraform` requires `plan_id`; calls that only
+provide `auto_approve` now return an explanatory error. Approval happens in the
+client before the call, because Terraform receives no interactive input.
+
+Saved plans use private temporary directories and are bound to the project,
+workspace, initialized backend metadata, Terraform version, and provider
+lockfile. Plan IDs remain valid only for the current server process, with a
+maximum of 64 retained plans. Normal server shutdown removes the temporary
+files. `outcome_unknown` means an interrupted attempt has no confirmed result;
+inspect state before continuing. Status retrieval waits for an ongoing operation
+to finish; live progress and restart recovery are not provided in this release.
+
 ## MCP Tools
 
 tfmcp provides 82 MCP tools for AI assistants:
@@ -185,9 +229,9 @@ tfmcp provides 82 MCP tools for AI assistants:
 | Tool | Description |
 |------|-------------|
 | `init_terraform` | Initialize Terraform working directory |
-| `get_terraform_plan` | Generate and show execution plan |
+| `get_terraform_plan` | Generate a saved plan, or retrieve its redacted result and status by plan ID |
 | `analyze_plan` | **NEW** Analyze plan with risk scoring and recommendations |
-| `apply_terraform` | Apply Terraform configuration |
+| `apply_terraform` | Apply the reviewed saved plan ID and verify state resource addresses |
 | `destroy_terraform` | Destroy Terraform-managed infrastructure |
 | `validate_terraform` | Validate configuration syntax |
 | `validate_terraform_detailed` | Detailed validation with guidelines |
@@ -319,6 +363,7 @@ Common issues and solutions:
 - `TERRAFORM_DIR`: Set this to specify a custom Terraform project directory. If not set, tfmcp will use the directory provided by command line arguments, configuration files, or fall back to `~/terraform`. You can also change the project directory at runtime using the `set_terraform_directory` tool.
 - `TFMCP_LOG_LEVEL`: Set to `debug`, `info`, `warn`, or `error` to control logging verbosity.
 - `TFMCP_DEMO_MODE`: Set to `true` to enable demo mode with additional safety features.
+- `TFMCP_COMMAND_TIMEOUT_SECONDS`: Positive timeout in seconds for init, plan, saved-plan apply, validation, and execution preparation (default: `900`). Timed-out writes may have partially completed; inspect state before retrying.
 
 ### Security Configuration
 - `ENABLE_TF_OPERATIONS`: Set to `true` to enable gated HCP Terraform / Terraform Enterprise write tools (default: `false`)
@@ -436,10 +481,10 @@ to run the same fast feedback while developing.
 Releases are done manually after the local release gate passes:
 
 1. Confirm `Cargo.toml`, `Cargo.lock`, `server.json`, `Dockerfile`, README, and `CHANGELOG.md` use the target version.
-2. Run the local release gate: `./Release.sh v0.2.2`.
+2. Run the local release gate: `./Release.sh v0.2.3`.
 3. Review `CHANGELOG.md` and the generated package.
 4. Commit and push `main`, then confirm CI passed for that exact commit.
-5. From the clean commit, publish with `./Release.sh v0.2.2 --publish`.
+5. From the clean commit, publish with `./Release.sh v0.2.3 --publish`.
 
 ## Roadmap
 

@@ -1,6 +1,7 @@
 //! RMCP-based MCP server implementation for tfmcp.
 
 mod analysis;
+mod local;
 mod protocol;
 
 use analysis::AnalysisToolCall;
@@ -361,8 +362,8 @@ macro_rules! tfe_call_value {
 
 enum TfmcpToolCall {
     ListResources,
-    Plan,
-    Apply(bool),
+    Plan(PlanInput),
+    Apply(ApplyPlanInput),
     Destroy(bool),
     Init,
     Validate,
@@ -372,9 +373,9 @@ enum TfmcpToolCall {
     DetectEntrypoints,
     DependencyGraph,
     SuggestRefactoring,
-    AnalyzePlan(bool),
-    ReviewPlan,
-    SummarizePlanForPr,
+    AnalyzePlan(AnalyzePlanInput),
+    ReviewPlan(PlanReferenceInput),
+    SummarizePlanForPr(PlanReferenceInput),
     AnalyzeState {
         resource_type: Option<String>,
         detect_drift: bool,
@@ -401,7 +402,7 @@ impl TfmcpToolCall {
     fn tool_name(&self) -> &'static str {
         match self {
             Self::ListResources => "list_terraform_resources",
-            Self::Plan => "get_terraform_plan",
+            Self::Plan(_) => "get_terraform_plan",
             Self::Apply(_) => "apply_terraform",
             Self::Destroy(_) => "destroy_terraform",
             Self::Init => "init_terraform",
@@ -413,8 +414,8 @@ impl TfmcpToolCall {
             Self::DependencyGraph => "get_resource_dependency_graph",
             Self::SuggestRefactoring => "suggest_module_refactoring",
             Self::AnalyzePlan(_) => "analyze_plan",
-            Self::ReviewPlan => "review_terraform_plan",
-            Self::SummarizePlanForPr => "summarize_plan_for_pr",
+            Self::ReviewPlan(_) => "review_terraform_plan",
+            Self::SummarizePlanForPr(_) => "summarize_plan_for_pr",
             Self::AnalyzeState { .. } => "analyze_state",
             Self::Workspace { .. } => "terraform_workspace",
             Self::Import(_) => "terraform_import",
@@ -435,7 +436,7 @@ impl TfmcpToolCall {
     fn error_prefix(&self) -> &'static str {
         match self {
             Self::ListResources => "Failed to list resources",
-            Self::Plan => "Failed to get plan",
+            Self::Plan(_) => "Failed to get plan",
             Self::Apply(_) => "Failed to apply",
             Self::Destroy(_) => "Failed to destroy",
             Self::Init => "Failed to init",
@@ -447,8 +448,8 @@ impl TfmcpToolCall {
             Self::DependencyGraph => "Failed to get dependency graph",
             Self::SuggestRefactoring => "Failed to get refactoring suggestions",
             Self::AnalyzePlan(_) => "Plan analysis failed",
-            Self::ReviewPlan => "Plan review failed",
-            Self::SummarizePlanForPr => "Plan PR summary failed",
+            Self::ReviewPlan(_) => "Plan review failed",
+            Self::SummarizePlanForPr(_) => "Plan PR summary failed",
             Self::AnalyzeState { .. } => "State analysis failed",
             Self::Workspace { .. } => "Workspace operation failed",
             Self::Import(_) => "Import failed",
@@ -781,14 +782,22 @@ impl TfMcpServer {
                 .list_resources()
                 .await
                 .map(|resources| serde_json::json!({ "resources": resources })),
-            TfmcpToolCall::Plan => tfmcp
-                .get_terraform_plan()
-                .await
-                .map(|plan| serde_json::json!({ "plan": plan })),
-            TfmcpToolCall::Apply(auto_approve) => tfmcp
-                .apply_terraform(auto_approve)
-                .await
-                .map(|output| serde_json::json!({ "output": output })),
+            TfmcpToolCall::Plan(input) => {
+                local::plan_value(&tfmcp, input, local::PlanView::Output).await
+            }
+            TfmcpToolCall::Apply(input) => {
+                if let Some(plan_id) = input.plan_id {
+                    tfmcp
+                        .apply_saved_plan(&plan_id, input.auto_approve)
+                        .await
+                        .and_then(|result| Ok(serde_json::to_value(result)?))
+                } else {
+                    tfmcp
+                        .apply_terraform(input.auto_approve)
+                        .await
+                        .map(|output| serde_json::json!({"output": output}))
+                }
+            }
             TfmcpToolCall::Destroy(auto_approve) => tfmcp
                 .destroy_terraform(auto_approve)
                 .await
@@ -827,18 +836,39 @@ impl TfMcpServer {
                 .suggest_refactoring()
                 .await
                 .map(|suggestions| serde_json::json!({ "suggestions": suggestions })),
-            TfmcpToolCall::AnalyzePlan(include_risk) => tfmcp
-                .analyze_plan(include_risk)
+            TfmcpToolCall::AnalyzePlan(input) => {
+                local::plan_value(
+                    &tfmcp,
+                    PlanInput {
+                        plan_id: input.plan_id,
+                        ..Default::default()
+                    },
+                    local::PlanView::Analysis(input.include_risk),
+                )
                 .await
-                .map(|analysis| serde_json::json!(analysis)),
-            TfmcpToolCall::ReviewPlan => tfmcp
-                .review_plan()
+            }
+            TfmcpToolCall::ReviewPlan(input) => {
+                local::plan_value(
+                    &tfmcp,
+                    PlanInput {
+                        plan_id: input.plan_id,
+                        ..Default::default()
+                    },
+                    local::PlanView::Review,
+                )
                 .await
-                .map(|review| serde_json::json!(review)),
-            TfmcpToolCall::SummarizePlanForPr => tfmcp
-                .summarize_plan_for_pr()
+            }
+            TfmcpToolCall::SummarizePlanForPr(input) => {
+                local::plan_value(
+                    &tfmcp,
+                    PlanInput {
+                        plan_id: input.plan_id,
+                        ..Default::default()
+                    },
+                    local::PlanView::PrSummary,
+                )
                 .await
-                .map(|summary| serde_json::json!(summary)),
+            }
             TfmcpToolCall::AnalyzeState {
                 resource_type,
                 detect_drift,
@@ -1005,10 +1035,18 @@ impl TfMcpServer {
         started: Instant,
         result: Result<serde_json::Value, String>,
     ) -> Result<CallToolResult, McpError> {
-        let success = result.is_ok();
+        let success = result
+            .as_ref()
+            .is_ok_and(|value| value.get("success") != Some(&serde_json::Value::Bool(false)));
         metrics::record_tool_call(tool_name, success, started.elapsed());
         match result {
-            Ok(value) => json_success(&value),
+            Ok(value) => {
+                let mut result = json_success(&value)?;
+                if !success {
+                    result.is_error = Some(true);
+                }
+                Ok(result)
+            }
             Err(e) => Ok(text_error(error_prefix, e)),
         }
     }
@@ -1165,23 +1203,25 @@ impl TfMcpServer {
     }
 
     #[tool(
-        description = "Execute 'terraform plan' and return the output",
+        description = "Create a saved Terraform plan and return its plan_id, target, and redacted analysis. Pass plan_id to retrieve it without replanning; reuse that ID for review, PR summary, and apply. Plans expire when the server restarts.",
         annotations(title = "Get Terraform Plan", read_only_hint = true)
     )]
-    async fn get_terraform_plan(&self) -> Result<CallToolResult, McpError> {
-        self.run_tfmcp_call(TfmcpToolCall::Plan).await
+    async fn get_terraform_plan(
+        &self,
+        params: Parameters<PlanInput>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run_tfmcp_call(TfmcpToolCall::Plan(params.0)).await
     }
 
     #[tool(
-        description = "Apply Terraform configuration (WARNING: Makes actual infrastructure changes)",
+        description = "Apply a reviewed saved plan_id without replanning. Requires auto_approve=true, TFMCP_ALLOW_DANGEROUS_OPS=true, and TFMCP_ALLOW_AUTO_APPROVE=true. Refuses changed targets and previously attempted plans. Makes actual infrastructure changes.",
         annotations(title = "Apply Terraform", destructive_hint = true)
     )]
     async fn apply_terraform(
         &self,
-        params: Parameters<AutoApproveInput>,
+        params: Parameters<ApplyPlanInput>,
     ) -> Result<CallToolResult, McpError> {
-        self.run_tfmcp_call(TfmcpToolCall::Apply(params.0.auto_approve))
-            .await
+        self.run_tfmcp_call(TfmcpToolCall::Apply(params.0)).await
     }
 
     #[tool(
@@ -1569,7 +1609,7 @@ impl TfMcpServer {
         &self,
         params: Parameters<AnalyzePlanInput>,
     ) -> Result<CallToolResult, McpError> {
-        self.run_tfmcp_call(TfmcpToolCall::AnalyzePlan(params.0.include_risk))
+        self.run_tfmcp_call(TfmcpToolCall::AnalyzePlan(params.0))
             .await
     }
 
@@ -1577,16 +1617,24 @@ impl TfMcpServer {
         description = "Review terraform plan with risk, blocker, and recommendation summary",
         annotations(title = "Review Terraform Plan", read_only_hint = true)
     )]
-    async fn review_terraform_plan(&self) -> Result<CallToolResult, McpError> {
-        self.run_tfmcp_call(TfmcpToolCall::ReviewPlan).await
+    async fn review_terraform_plan(
+        &self,
+        params: Parameters<PlanReferenceInput>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run_tfmcp_call(TfmcpToolCall::ReviewPlan(params.0))
+            .await
     }
 
     #[tool(
         description = "Generate a markdown Terraform plan summary suitable for PR comments",
         annotations(title = "Summarize Plan for PR", read_only_hint = true)
     )]
-    async fn summarize_plan_for_pr(&self) -> Result<CallToolResult, McpError> {
-        self.run_tfmcp_call(TfmcpToolCall::SummarizePlanForPr).await
+    async fn summarize_plan_for_pr(
+        &self,
+        params: Parameters<PlanReferenceInput>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run_tfmcp_call(TfmcpToolCall::SummarizePlanForPr(params.0))
+            .await
     }
 
     #[tool(
