@@ -10,7 +10,7 @@ use rmcp::{
         CacheScope, CallToolRequestParams, CallToolResponse, Implementation,
         ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
         ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
-        ResourceContents, ResourceTemplate, ServerCapabilities, ServerInfo,
+        ResourceContents, ResourceTemplate, ServerCapabilities, ServerConfig,
     },
     service::{RequestContext, RoleServer},
 };
@@ -66,13 +66,13 @@ fn list_resource_templates_result() -> ListResourceTemplatesResult {
 // The ServerHandler trait requires this specific impl Future pattern.
 #[allow(clippy::manual_async_fn)]
 impl ServerHandler for TfMcpServer {
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> ServerConfig {
         let capabilities = ServerCapabilities::builder()
             .enable_tools()
             .enable_resources()
             .build();
         let server_info = Implementation::new("tfmcp", env!("CARGO_PKG_VERSION"));
-        ServerInfo::new(capabilities)
+        ServerConfig::new(capabilities)
             .with_server_info(server_info)
             .with_instructions(SERVER_INSTRUCTIONS)
     }

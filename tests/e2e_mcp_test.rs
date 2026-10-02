@@ -6,8 +6,8 @@
 use rmcp::{
     ClientHandler, ClientLifecycleMode, ClientServiceExt, ServerHandler, ServiceExt,
     model::{
-        CacheScope, CallToolRequestParams, ClientInfo, ProtocolVersion, ReadResourceRequestParams,
-        ServerJsonRpcMessage,
+        CacheScope, CallToolRequestParams, ClientConfig, ProtocolVersion,
+        ReadResourceRequestParams, ServerJsonRpcMessage,
     },
     transport::{IntoTransport, Transport},
 };
@@ -75,8 +75,8 @@ output "file_path" {
 struct TestClientHandler;
 
 impl ClientHandler for TestClientHandler {
-    fn get_info(&self) -> ClientInfo {
-        ClientInfo::default()
+    fn get_info(&self) -> ClientConfig {
+        ClientConfig::default()
     }
 }
 
