@@ -156,6 +156,10 @@ fn init_logging() {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| format!("tfmcp={filter},reqwest=warn,hyper=warn").into()),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_ansi(false),
+        )
         .init();
 }

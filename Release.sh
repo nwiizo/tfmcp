@@ -55,6 +55,21 @@ require_clean_worktree() {
     fi
 }
 
+run_isolated_tests() (
+    local test_cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+    local test_rustup_home="${RUSTUP_HOME:-$HOME/.rustup}"
+    local test_home
+    test_home="$(mktemp -d "${TMPDIR:-/tmp}/tfmcp-release-tests.XXXXXX")"
+    # Keep publication credentials in the release process, while regression
+    # tests use a disposable home and no inherited service credentials.
+    trap 'rm -rf -- "$test_home"' EXIT
+    run_step env -i \
+        HOME="$test_home" USER=tfmcp-test LOGNAME=tfmcp-test \
+        CARGO_HOME="$test_cargo_home" RUSTUP_HOME="$test_rustup_home" \
+        PATH="$PATH" RUSTFLAGS="${RUSTFLAGS:-}" \
+        cargo test --locked --all-features
+)
+
 metadata_version() {
     jq -r '.version' server.json
 }
@@ -197,7 +212,7 @@ fi
 
 run_step cargo fmt --all -- --check
 run_step env RUSTFLAGS=-Dwarnings cargo clippy --all-targets --all-features
-run_step cargo test --locked --all-features
+run_isolated_tests
 run_step cargo audit
 run_step cargo coupling --check --min-grade B --max-critical 0 --max-circular 0 --fail-on high --max-deps 40
 run_step similarity-rs src --skip-test --threshold 0.90 --min-lines 8 --fail-on-duplicates

@@ -1,4 +1,3 @@
-use chrono::Local;
 use std::fmt::Display;
 
 #[derive(Debug, Clone, Copy)]
@@ -20,10 +19,14 @@ impl Display for LogLevel {
     }
 }
 
-/// Log a message to stderr with timestamp and log level
+/// Log through the configured subscriber, which writes to stderr.
 pub fn log(level: LogLevel, message: &str) {
-    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-    eprintln!("[{timestamp}] [{level}] {message}");
+    match level {
+        LogLevel::Debug => tracing::debug!("{message}"),
+        LogLevel::Info => tracing::info!("{message}"),
+        LogLevel::Warning => tracing::warn!("{message}"),
+        LogLevel::Error => tracing::error!("{message}"),
+    }
 }
 
 /// Log debug level message

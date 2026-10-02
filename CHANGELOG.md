@@ -4,7 +4,7 @@ All notable changes to tfmcp are documented in this file.
 
 ## [Unreleased]
 
-## [0.2.4] - 2026-10-02
+## [0.2.4] - 2026-10-03
 
 ### Added
 
@@ -18,6 +18,9 @@ All notable changes to tfmcp are documented in this file.
   the server process lifetime; they do not survive a restart.
 - Local development requirements based on Terraform documentation and the
   Terraform in Depth / Terraform at Scale material, ranked by developer jobs.
+- A runnable local Web app and opt-in real-provider MCP verification covering
+  reviewed deployments, HTTP responses, exact CLI arguments, audit records,
+  and teardown, with retained reports and logs.
 
 ### Fixed
 
@@ -26,6 +29,10 @@ All notable changes to tfmcp are documented in this file.
   like a successful empty output result.
 - Update rustls to 0.23.45 for RUSTSEC-2026-0285 and adapt MCP configuration
   types to RMCP 3.5.0.
+- Send tracing diagnostics to stderr, preserving stdout for MCP messages even
+  when audit-log writes fail.
+- Route local service and shared logging through the configured subscriber so
+  debug messages obey `TFMCP_LOG_LEVEL` and `RUST_LOG`.
 
 ### Changed
 
@@ -36,6 +43,7 @@ All notable changes to tfmcp are documented in this file.
   updates. The Rust 1.88 minimum supported version is unchanged.
 - Exclude shared agent-directory symlinks from the Cargo package, matching the
   existing exclusion of their documentation and skill targets.
+- Run release-gate tests with a disposable home and stripped service credentials.
 
 ## [0.2.3] - 2026-09-08
 

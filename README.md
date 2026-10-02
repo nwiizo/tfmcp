@@ -525,6 +525,11 @@ compare the current implementation with Terraform documentation and the local
 Terraform in Depth / Terraform at Scale source material, with prioritized jobs
 and acceptance criteria for future work.
 
+For a hands-on check with a real local Web app, see the
+[local application example](example/local-app/README.md). It verifies saved-plan
+deployment, HTTP responses, actual Terraform arguments, audit records, and
+teardown, and retains the report and logs.
+
 ### Completed
 - [x] **Basic Terraform Integration**
   Core integration with Terraform CLI for analyzing and executing operations.

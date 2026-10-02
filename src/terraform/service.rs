@@ -25,13 +25,13 @@ pub struct TerraformService {
 
 impl TerraformService {
     pub fn new(terraform_path: PathBuf, project_directory: PathBuf) -> Self {
-        eprintln!(
-            "[DEBUG] TerraformService initialized with terraform path: {} and project directory: {}",
+        tracing::debug!(
+            "TerraformService initialized with terraform path: {} and project directory: {}",
             terraform_path.display(),
             project_directory.display()
         );
         let security_manager = SecurityManager::new().unwrap_or_else(|e| {
-            eprintln!("[WARN] Failed to initialize security manager: {e}");
+            tracing::warn!("Failed to initialize security manager: {e}");
             // Create a default security manager with basic settings
             SecurityManager {
                 policy: crate::shared::security::SecurityPolicy::default(),
@@ -47,10 +47,7 @@ impl TerraformService {
     }
 
     pub fn change_project_directory(&mut self, directory: PathBuf) -> anyhow::Result<()> {
-        eprintln!(
-            "[DEBUG] Changing project directory to: {}",
-            directory.display()
-        );
+        tracing::debug!("Changing project directory to: {}", directory.display());
         self.project_directory = directory;
         Ok(())
     }
@@ -325,8 +322,8 @@ impl TerraformService {
     }
 
     pub async fn analyze_configurations(&self) -> anyhow::Result<TerraformAnalysis> {
-        eprintln!(
-            "[DEBUG] Analyzing Terraform configurations in {}",
+        tracing::debug!(
+            "Analyzing Terraform configurations in {}",
             self.project_directory.display()
         );
         // Check if the directory exists
@@ -344,14 +341,14 @@ impl TerraformService {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() && path.extension().is_some_and(|ext| ext == "tf") {
-                eprintln!("[DEBUG] Found Terraform file: {}", path.display());
+                tracing::debug!("Found Terraform file: {}", path.display());
                 tf_files.push(path);
             }
         }
 
         if tf_files.is_empty() {
-            eprintln!(
-                "[WARN] No Terraform (.tf) files found in {}",
+            tracing::warn!(
+                "No Terraform (.tf) files found in {}",
                 self.project_directory.display()
             );
             return Err(anyhow::anyhow!(
@@ -371,15 +368,15 @@ impl TerraformService {
 
         // Parse each file to identify resources, variables, outputs
         for file_path in tf_files {
-            eprintln!("[DEBUG] Analyzing file: {}", file_path.display());
+            tracing::debug!("Analyzing file: {}", file_path.display());
             match self.analyze_file(&file_path, &mut analysis) {
-                Ok(_) => eprintln!("[DEBUG] Successfully analyzed {}", file_path.display()),
-                Err(e) => eprintln!("[ERROR] Failed to analyze {}: {}", file_path.display(), e),
+                Ok(_) => tracing::debug!("Successfully analyzed {}", file_path.display()),
+                Err(e) => tracing::error!("Failed to analyze {}: {}", file_path.display(), e),
             }
         }
 
-        eprintln!(
-            "[INFO] Terraform analysis complete: found {} resources, {} variables, {} outputs, {} providers",
+        tracing::info!(
+            "Terraform analysis complete: found {} resources, {} variables, {} outputs, {} providers",
             analysis.resources.len(),
             analysis.variables.len(),
             analysis.outputs.len(),
@@ -394,11 +391,11 @@ impl TerraformService {
         file_path: &Path,
         analysis: &mut TerraformAnalysis,
     ) -> anyhow::Result<()> {
-        eprintln!("[DEBUG] Reading file: {}", file_path.display());
+        tracing::debug!("Reading file: {}", file_path.display());
         let content = match std::fs::read_to_string(file_path) {
             Ok(content) => content,
             Err(e) => {
-                eprintln!("[ERROR] Failed to read file {}: {}", file_path.display(), e);
+                tracing::error!("Failed to read file {}: {}", file_path.display(), e);
                 return Err(anyhow::anyhow!("Failed to read file: {e}"));
             }
         };
@@ -407,44 +404,45 @@ impl TerraformService {
         let parser = TerraformParser::new(content);
 
         // Parse resources
-        eprintln!("[DEBUG] Parsing resources in {}", file_path.display());
+        tracing::debug!("Parsing resources in {}", file_path.display());
         let resources = parser.parse_resources(&file_name);
         for resource in &resources {
-            eprintln!(
-                "[DEBUG] Found resource: {} ({})",
-                resource.name, resource.resource_type
+            tracing::debug!(
+                "Found resource: {} ({})",
+                resource.name,
+                resource.resource_type
             );
         }
         analysis.resources.extend(resources);
 
         // Parse variables
-        eprintln!("[DEBUG] Parsing variables in {}", file_path.display());
+        tracing::debug!("Parsing variables in {}", file_path.display());
         let variables = parser.parse_variables();
         for variable in &variables {
-            eprintln!("[DEBUG] Found variable: {}", variable.name);
+            tracing::debug!("Found variable: {}", variable.name);
         }
         analysis.variables.extend(variables);
 
         // Parse outputs
-        eprintln!("[DEBUG] Parsing outputs in {}", file_path.display());
+        tracing::debug!("Parsing outputs in {}", file_path.display());
         let outputs = parser.parse_outputs();
         for output in &outputs {
-            eprintln!("[DEBUG] Found output: {}", output.name);
+            tracing::debug!("Found output: {}", output.name);
         }
         analysis.outputs.extend(outputs);
 
         // Parse providers
-        eprintln!("[DEBUG] Parsing providers in {}", file_path.display());
+        tracing::debug!("Parsing providers in {}", file_path.display());
         let providers = parser.parse_providers();
         for provider in providers {
             // Check if provider already exists
             if !analysis.providers.iter().any(|p| p.name == provider.name) {
-                eprintln!("[DEBUG] Found provider: {}", provider.name);
+                tracing::debug!("Found provider: {}", provider.name);
                 analysis.providers.push(provider);
             }
         }
 
-        eprintln!("[DEBUG] Completed analysis of {}", file_path.display());
+        tracing::debug!("Completed analysis of {}", file_path.display());
         Ok(())
     }
 
@@ -522,8 +520,8 @@ impl TerraformService {
     /// Analyze module health based on whitebox principles
     /// Detects issues related to cohesion, coupling, and module structure
     pub async fn analyze_module_health(&self) -> anyhow::Result<ModuleHealthAnalysis> {
-        eprintln!(
-            "[DEBUG] Analyzing module health in {}",
+        tracing::debug!(
+            "Analyzing module health in {}",
             self.project_directory.display()
         );
 
@@ -532,8 +530,8 @@ impl TerraformService {
 
         let health = analyzer::analyze_module_health(&analysis, &file_contents);
 
-        eprintln!(
-            "[INFO] Module health analysis complete: score={}, issues={}",
+        tracing::info!(
+            "Module health analysis complete: score={}, issues={}",
             health.health_score,
             health.issues.len()
         );
@@ -543,8 +541,8 @@ impl TerraformService {
 
     /// Build resource dependency graph for visualization
     pub async fn get_dependency_graph(&self) -> anyhow::Result<ResourceDependencyGraph> {
-        eprintln!(
-            "[DEBUG] Building dependency graph for {}",
+        tracing::debug!(
+            "Building dependency graph for {}",
             self.project_directory.display()
         );
 
@@ -553,8 +551,8 @@ impl TerraformService {
 
         let graph = analyzer::build_dependency_graph(&analysis, &file_contents);
 
-        eprintln!(
-            "[INFO] Dependency graph built: {} nodes, {} edges",
+        tracing::info!(
+            "Dependency graph built: {} nodes, {} edges",
             graph.nodes.len(),
             graph.edges.len()
         );
@@ -564,8 +562,8 @@ impl TerraformService {
 
     /// Generate refactoring suggestions based on module health analysis
     pub async fn suggest_refactoring(&self) -> anyhow::Result<Vec<RefactoringSuggestion>> {
-        eprintln!(
-            "[DEBUG] Generating refactoring suggestions for {}",
+        tracing::debug!(
+            "Generating refactoring suggestions for {}",
             self.project_directory.display()
         );
 
@@ -575,18 +573,15 @@ impl TerraformService {
 
         let suggestions = analyzer::suggest_refactoring(&analysis, &health);
 
-        eprintln!(
-            "[INFO] Generated {} refactoring suggestions",
-            suggestions.len()
-        );
+        tracing::info!("Generated {} refactoring suggestions", suggestions.len());
 
         Ok(suggestions)
     }
 
     /// Run security scan using guideline checks (secret detection, etc.)
     pub async fn run_security_scan(&self) -> anyhow::Result<GuidelineCheckResult> {
-        eprintln!(
-            "[DEBUG] Running security scan in {}",
+        tracing::debug!(
+            "Running security scan in {}",
             self.project_directory.display()
         );
 
@@ -600,8 +595,8 @@ impl TerraformService {
 
         let checks = analyzer::check_guidelines(&analysis, &file_contents);
 
-        eprintln!(
-            "[INFO] Security scan complete: {} secrets found, compliance score: {}",
+        tracing::info!(
+            "Security scan complete: {} secrets found, compliance score: {}",
             checks.hardcoded_secrets.len(),
             checks.compliance_score
         );
@@ -617,8 +612,8 @@ impl TerraformService {
         resource_type: Option<&str>,
         detect_drift: bool,
     ) -> anyhow::Result<super::state_analyzer::StateAnalysis> {
-        eprintln!(
-            "[DEBUG] Analyzing terraform state in {}",
+        tracing::debug!(
+            "Analyzing terraform state in {}",
             self.project_directory.display()
         );
 
@@ -651,8 +646,8 @@ impl TerraformService {
         action: &str,
         name: Option<&str>,
     ) -> anyhow::Result<super::workspace::WorkspaceResult> {
-        eprintln!(
-            "[DEBUG] Executing workspace {} in {}",
+        tracing::debug!(
+            "Executing workspace {} in {}",
             action,
             self.project_directory.display()
         );
@@ -674,7 +669,7 @@ impl TerraformService {
         name: &str,
         execute: bool,
     ) -> anyhow::Result<serde_json::Value> {
-        eprintln!("[DEBUG] Import {resource_type} {resource_id} as {name} (execute={execute})");
+        tracing::debug!("Import {resource_type} {resource_id} as {name} (execute={execute})");
 
         if execute {
             let result = super::import_helper::execute_import(
@@ -698,8 +693,8 @@ impl TerraformService {
         diff: bool,
         file: Option<&str>,
     ) -> anyhow::Result<super::fmt::FormatResult> {
-        eprintln!(
-            "[DEBUG] Formatting terraform files in {}",
+        tracing::debug!(
+            "Formatting terraform files in {}",
             self.project_directory.display()
         );
 
@@ -736,10 +731,7 @@ impl TerraformService {
         &self,
         graph_type: Option<&str>,
     ) -> anyhow::Result<super::graph::TerraformGraph> {
-        eprintln!(
-            "[DEBUG] Generating graph in {}",
-            self.project_directory.display()
-        );
+        tracing::debug!("Generating graph in {}", self.project_directory.display());
 
         let graph_type = graph_type.map(|s| s.parse()).transpose()?;
         super::graph::generate_graph(&self.terraform_path, &self.project_directory, graph_type)
@@ -747,10 +739,7 @@ impl TerraformService {
 
     /// Get terraform outputs
     pub async fn output(&self, name: Option<&str>) -> anyhow::Result<super::output::OutputResult> {
-        eprintln!(
-            "[DEBUG] Getting outputs in {}",
-            self.project_directory.display()
-        );
+        tracing::debug!("Getting outputs in {}", self.project_directory.display());
 
         super::output::get_outputs(&self.terraform_path, &self.project_directory, name)
     }
@@ -761,8 +750,8 @@ impl TerraformService {
         action: &str,
         address: &str,
     ) -> anyhow::Result<super::taint::TaintResult> {
-        eprintln!(
-            "[DEBUG] Executing {} on {} in {}",
+        tracing::debug!(
+            "Executing {} on {} in {}",
             action,
             address,
             self.project_directory.display()
@@ -782,10 +771,7 @@ impl TerraformService {
         &self,
         target: Option<&str>,
     ) -> anyhow::Result<super::refresh::RefreshResult> {
-        eprintln!(
-            "[DEBUG] Refreshing state in {}",
-            self.project_directory.display()
-        );
+        tracing::debug!("Refreshing state in {}", self.project_directory.display());
 
         // Security check - refresh can modify state
         if !self.security_manager.is_command_allowed("refresh") {
@@ -807,10 +793,7 @@ impl TerraformService {
         &self,
         include_lock: bool,
     ) -> anyhow::Result<super::providers::ProvidersResult> {
-        eprintln!(
-            "[DEBUG] Getting providers in {}",
-            self.project_directory.display()
-        );
+        tracing::debug!("Getting providers in {}", self.project_directory.display());
 
         super::providers::get_providers(&self.terraform_path, &self.project_directory, include_lock)
     }

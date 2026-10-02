@@ -25,7 +25,7 @@ struct Session {
 
 impl Session {
     async fn start(configuration: &str, allow_apply: bool) -> Result<Self> {
-        Self::start_with_options(configuration, allow_apply, false, 900).await
+        Self::start_with_options(configuration, allow_apply, false, 900, false).await
     }
 
     async fn start_with_options(
@@ -33,6 +33,7 @@ impl Session {
         allow_apply: bool,
         allow_delete: bool,
         timeout_seconds: u64,
+        trace_terraform: bool,
     ) -> Result<Self> {
         let directory = tempfile::tempdir()?;
         let home = directory.path().join("home");
@@ -57,6 +58,8 @@ impl Session {
             .env("USERPROFILE", &home)
             .env("TF_CLI_CONFIG_FILE", home.join("terraform.rc"))
             .env("TFMCP_AUDIT_LOG_FILE", directory.path().join("audit.log"))
+            .envs(trace_terraform.then_some(("TF_LOG", "DEBUG")))
+            .envs(trace_terraform.then(|| ("TF_LOG_PATH", directory.path().join("terraform.log"))))
             .env_remove("TFE_TOKEN")
             .env_remove("TFE_ADDRESS")
             .env_remove("TF_CLI_ARGS")
@@ -66,7 +69,9 @@ impl Session {
             .env_remove("TF_DATA_DIR")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::from(std::fs::File::create(
+                directory.path().join("server.log"),
+            )?))
             .kill_on_drop(true)
             .spawn()?;
         let stdout = child.stdout.take().context("server stdout")?;
@@ -94,10 +99,44 @@ impl Session {
         anyhow::ensure!(result.is_error != Some(true), "{tool}: {result:?}");
         result.structured_content.context("structured tool result")
     }
+
+    async fn audit_entries(&self) -> Result<Vec<tfmcp::shared::security::AuditLogEntry>> {
+        tokio::fs::read_to_string(self.directory.path().join("audit.log"))
+            .await?
+            .lines()
+            .map(|line| serde_json::from_str(line).map_err(Into::into))
+            .collect()
+    }
 }
 
 const CONFIGURATION: &str =
     "resource \"terraform_data\" \"example\" { input = \"reviewed-value\" }";
+
+#[tokio::test]
+async fn audit_write_failure_is_logged_on_stderr_without_breaking_stdio() -> Result<()> {
+    let session = Session::start(CONFIGURATION, true).await?;
+    // A real filesystem failure must produce a stderr warning, not JSON-RPC data.
+    tokio::fs::create_dir(session.directory.path().join("audit.log")).await?;
+    session.value("init_terraform", json!({})).await?;
+    let plan = session.value("get_terraform_plan", json!({})).await?;
+    let result = session
+        .value(
+            "apply_terraform",
+            json!({"plan_id": plan["plan_id"], "auto_approve": true}),
+        )
+        .await?;
+    assert_eq!(result["success"], true);
+    session.value("list_terraform_plans", json!({})).await?;
+    let log = tokio::fs::read_to_string(session.directory.path().join("server.log")).await?;
+    assert!(log.contains("Failed to log apply audit entry"));
+    assert!(
+        !log.contains("DEBUG") && !log.contains("TerraformService initialized"),
+        "info logging must suppress debug messages"
+    );
+    assert!(!log.contains("reviewed-value"));
+    session.client.cancel().await?;
+    Ok(())
+}
 
 #[tokio::test]
 async fn outputs_preserve_sensitivity_and_report_unreadable_state() -> Result<()> {
@@ -153,6 +192,10 @@ output "public" { value = 42 }
         session.call("terraform_output", json!({})).await?.is_error,
         Some(true)
     );
+    for file in ["server.log", "audit.log"] {
+        let log = tokio::fs::read_to_string(session.directory.path().join(file)).await?;
+        assert!(!log.contains("never-return-this-secret"));
+    }
     Ok(())
 }
 
@@ -461,7 +504,7 @@ async fn saved_plans_can_be_listed_and_discarded_without_affecting_other_plans()
 
 #[tokio::test]
 async fn destroy_requires_a_saved_destroy_plan_and_preserves_delete_gates() -> Result<()> {
-    let session = Session::start_with_options(CONFIGURATION, true, true, 900).await?;
+    let session = Session::start_with_options(CONFIGURATION, true, true, 900, false).await?;
     session.value("init_terraform", json!({})).await?;
     let create = session.value("get_terraform_plan", json!({})).await?;
     let rejected = session
@@ -598,6 +641,20 @@ resource "terraform_data" "failed" {
         .value("get_terraform_plan", json!({"plan_id": plan["plan_id"]}))
         .await?;
     assert_eq!(saved["apply_result"], result);
+    let audit = session.audit_entries().await?;
+    assert_eq!(audit.len(), 1);
+    assert_eq!(audit[0].operation, "apply");
+    assert!(!audit[0].success);
+    assert!(
+        audit[0]
+            .error
+            .as_ref()
+            .is_some_and(|error| !error.is_empty())
+    );
+    assert_eq!(
+        audit[0].command.last().map(String::as_str),
+        plan["plan_id"].as_str()
+    );
     session.client.cancel().await?;
     Ok(())
 }
@@ -607,11 +664,12 @@ resource "terraform_data" "failed" {
 async fn timed_out_apply_retains_unknown_outcome_and_recovery_instructions() -> Result<()> {
     let session = Session::start_with_options(
         r#"resource "terraform_data" "slow" {
-  provisioner "local-exec" { command = "sleep 3" }
+  provisioner "local-exec" { command = "echo started > started.txt; sleep 10" }
 }"#,
         true,
         false,
-        1,
+        5,
+        false,
     )
     .await?;
     session.value("init_terraform", json!({})).await?;
@@ -627,6 +685,7 @@ async fn timed_out_apply_retains_unknown_outcome_and_recovery_instructions() -> 
         .structured_content
         .context("structured timeout result")?;
     assert_eq!(result["status"], "outcome_unknown");
+    assert!(session.directory.path().join("started.txt").exists());
     assert!(result["exit_code"].is_null());
     assert_eq!(result["recovery"]["state_may_have_changed"], true);
     let snapshot = session
@@ -634,6 +693,15 @@ async fn timed_out_apply_retains_unknown_outcome_and_recovery_instructions() -> 
         .await?;
     assert_eq!(snapshot["status"], "outcome_unknown");
     assert_eq!(snapshot["apply_result"], result);
+    let audit = session.audit_entries().await?;
+    assert_eq!(audit.len(), 1);
+    assert!(!audit[0].success);
+    assert!(
+        audit[0]
+            .error
+            .as_ref()
+            .is_some_and(|error| error.contains("timed out"))
+    );
     assert_eq!(
         session
             .call(
@@ -645,5 +713,216 @@ async fn timed_out_apply_retains_unknown_outcome_and_recovery_instructions() -> 
         Some(true)
     );
     session.client.cancel().await?;
+    Ok(())
+}
+
+/// Explicit hands-on check: downloads a real provider and retains a local report.
+#[tokio::test]
+#[ignore = "requires the local_app example binary and provider registry access; see example/local-app/README.md"]
+async fn local_web_app_is_deployed_updated_and_destroyed() -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let binary = std::env::var_os("TFMCP_LOCAL_APP_BINARY").context(
+        "Build the local_app example and set TFMCP_LOCAL_APP_BINARY to its absolute path",
+    )?;
+    let session = Session::start_with_options(
+        include_str!("../example/local-app/main.tf"),
+        true,
+        true,
+        900,
+        true,
+    )
+    .await?;
+    let directory = session.directory.path();
+    tokio::fs::write(
+        directory.join("index.html.tftpl"),
+        include_str!("../example/local-app/index.html.tftpl"),
+    )
+    .await?;
+    let initialization = session.value("init_terraform", json!({})).await?;
+    let formatting = session
+        .value("terraform_fmt", json!({"check": true}))
+        .await?;
+    assert_eq!(formatting["success"], true);
+    let validation = session.value("validate_terraform", json!({})).await?;
+    let plan = session.value("get_terraform_plan", json!({})).await?;
+    let review = session
+        .value("review_terraform_plan", json!({"plan_id": plan["plan_id"]}))
+        .await?;
+    let initial_apply = session
+        .value(
+            "apply_terraform",
+            json!({"plan_id": plan["plan_id"], "auto_approve": true}),
+        )
+        .await?;
+    assert_eq!(initial_apply["state_verified"], true);
+
+    let mut app = Command::new(binary)
+        .arg("--directory")
+        .arg(directory.join("site"))
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").context("test PATH")?)
+        .envs(std::env::var_os("SystemRoot").map(|value| ("SystemRoot", value)))
+        .env("HOME", directory.join("home"))
+        .env("USERPROFILE", directory.join("home"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(std::fs::File::create(
+            directory.join("app.log"),
+        )?))
+        .kill_on_drop(true)
+        .spawn()?;
+    let mut output = BufReader::new(app.stdout.take().context("app stdout")?).lines();
+    let url = tokio::time::timeout(std::time::Duration::from_secs(10), output.next_line())
+        .await??
+        .context("app URL")?;
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+    let response = http.get(&url).send().await?;
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let initial_html = response.text().await?;
+    assert!(initial_html.contains("Local deployment · v1"));
+    assert_eq!(
+        http.get(format!("{url}/health"))
+            .send()
+            .await?
+            .text()
+            .await?,
+        "ok"
+    );
+
+    tokio::fs::write(directory.join("release.tfvars"), "release = \"v2\"\n").await?;
+    let update = session
+        .value(
+            "get_terraform_plan",
+            json!({"var_files": ["release.tfvars"]}),
+        )
+        .await?;
+    let update_review = session
+        .value(
+            "review_terraform_plan",
+            json!({"plan_id": update["plan_id"]}),
+        )
+        .await?;
+    // The reviewed v2 plan must win over a later, unreviewed edit to v3.
+    tokio::fs::write(directory.join("release.tfvars"), "release = \"v3\"\n").await?;
+    let updated_apply = session
+        .value(
+            "apply_terraform",
+            json!({"plan_id": update["plan_id"], "auto_approve": true}),
+        )
+        .await?;
+    assert_eq!(updated_apply["state_verified"], true);
+    let updated_response = http.get(&url).send().await?;
+    assert_eq!(updated_response.status(), reqwest::StatusCode::OK);
+    let updated_html = updated_response.text().await?;
+    assert!(updated_html.contains("Local deployment · v2"));
+    assert!(!updated_html.contains("v3"));
+    let release = session
+        .value("terraform_output", json!({"name": "release"}))
+        .await?;
+    assert_eq!(release["outputs"][0]["value"], "v2");
+    tokio::fs::create_dir(directory.join("preview")).await?;
+    tokio::fs::write(directory.join("preview/index.html"), updated_html).await?;
+
+    let teardown = session
+        .value("get_terraform_plan", json!({"destroy": true}))
+        .await?;
+    let teardown_review = session
+        .value(
+            "review_terraform_plan",
+            json!({"plan_id": teardown["plan_id"]}),
+        )
+        .await?;
+    let destroyed = session
+        .value(
+            "destroy_terraform",
+            json!({"plan_id": teardown["plan_id"], "auto_approve": true}),
+        )
+        .await?;
+    assert_eq!(destroyed["managed_resources"], 0);
+    assert_eq!(destroyed["state_verified"], true);
+    assert!(!directory.join("site/index.html").exists());
+    assert_eq!(
+        http.get(&url).send().await?.status(),
+        reqwest::StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        http.get(format!("{url}/health"))
+            .send()
+            .await?
+            .text()
+            .await?,
+        "ok"
+    );
+
+    let audit = session.audit_entries().await?;
+    assert_eq!(audit.len(), 3);
+    let terraform_log = tokio::fs::read_to_string(directory.join("terraform.log")).await?;
+    let commands: Vec<_> = terraform_log
+        .lines()
+        .filter(|line| line.contains("CLI command args:"))
+        .collect();
+    let apply_commands: Vec<_> = commands
+        .iter()
+        .filter(|line| line.contains("{\"apply\","))
+        .collect();
+    assert_eq!(apply_commands.len(), 3);
+    assert_eq!(
+        commands
+            .iter()
+            .filter(|line| line.contains("{\"plan\","))
+            .count(),
+        3
+    );
+    assert!(commands.iter().any(|line| line.contains("\"-destroy\"")));
+    for (entry, (operation, expected_plan)) in
+        audit
+            .iter()
+            .zip([("apply", &plan), ("apply", &update), ("destroy", &teardown)])
+    {
+        assert_eq!(entry.operation, operation);
+        assert!(entry.success);
+        assert!(entry.error.is_none());
+        assert_eq!(
+            entry.command.last().map(String::as_str),
+            expected_plan["plan_id"].as_str()
+        );
+        assert_eq!(
+            std::path::Path::new(&entry.directory).canonicalize()?,
+            directory.canonicalize()?
+        );
+    }
+    for (entry, command) in audit.iter().zip(&apply_commands) {
+        let plan_id = entry.command.last().context("audited plan ID")?;
+        assert!(command.contains(&format!("/{plan_id}/plan.tfplan")));
+        for option in ["-input=false", "-json", "-lock-timeout=30s"] {
+            assert!(command.contains(option));
+        }
+    }
+    let report = json!({
+        "initialization": initialization, "formatting": formatting, "validation": validation,
+        "initial_review": review, "initial_apply": initial_apply,
+        "update_review": update_review, "updated_apply": updated_apply, "release_output": release,
+        "destroy_review": teardown_review, "destroy_result": destroyed,
+        "http_checks": {"initial_status": 200, "initial_release": "v1", "updated_status": 200, "updated_release": "v2", "after_destroy_status": 404, "health_after_destroy": "ok"},
+        "audit_entries": audit,
+        "terraform_apply_commands": apply_commands,
+    });
+    tokio::fs::write(
+        directory.join("report.json"),
+        serde_json::to_vec_pretty(&report)?,
+    )
+    .await?;
+    app.kill().await?;
+    app.wait().await?;
+    session.client.cancel().await?;
+    let artifacts = session.directory.keep();
+    println!(
+        "Local application verified; report, logs, lockfile, state and preview retained at {}",
+        artifacts.display()
+    );
     Ok(())
 }
