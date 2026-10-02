@@ -301,6 +301,7 @@ async fn test_e2e_list_tools() {
     };
     for name in [
         "list_terraform_resources",
+        "list_terraform_plans",
         "get_terraform_plan",
         "validate_terraform",
         "validate_terraform_detailed",
@@ -373,6 +374,7 @@ async fn test_e2e_list_tools() {
     for name in [
         "apply_terraform",
         "destroy_terraform",
+        "discard_terraform_plan",
         "terraform_import",
         "terraform_taint",
         "terraform_refresh",
@@ -389,6 +391,23 @@ async fn test_e2e_list_tools() {
             "{name} should be annotated destructive"
         );
     }
+
+    assert_eq!(
+        tool("get_terraform_plan").input_schema["properties"]["destroy"]["type"],
+        "boolean"
+    );
+    assert!(
+        tool("discard_terraform_plan").input_schema["required"]
+            .as_array()
+            .is_some_and(|required| required.contains(&serde_json::json!("plan_id")))
+    );
+    assert_eq!(
+        tool("discard_terraform_plan")
+            .annotations
+            .as_ref()
+            .and_then(|annotations| annotations.open_world_hint),
+        Some(false)
+    );
 
     for name in [
         "create_workspace",

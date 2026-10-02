@@ -4,7 +4,7 @@ use crate::mcp::types::PlanInput;
 use crate::terraform::{
     plan_analyzer::{RiskAssessment, RiskLevel},
     plan_review,
-    saved_plan::PlanOptions,
+    saved_plan::{PlanOptions, RecoveryGuidance},
 };
 
 pub(super) enum PlanView {
@@ -26,6 +26,7 @@ pub(super) async fn plan_value(
                 var_files: input.var_files,
                 replace: input.replace,
                 refresh_only: input.refresh_only,
+                destroy: input.destroy,
             },
         )
         .await?;
@@ -53,5 +54,14 @@ pub(super) async fn plan_value(
     value["created_at"] = serde_json::to_value(snapshot.created_at)?;
     value["status"] = serde_json::to_value(snapshot.status)?;
     value["refresh_only"] = serde_json::json!(snapshot.refresh_only);
+    value["destroy"] = serde_json::json!(snapshot.destroy);
+    value["recovery"] = serde_json::to_value(RecoveryGuidance::for_status(
+        snapshot.status,
+        snapshot
+            .apply_result
+            .as_ref()
+            .is_some_and(|result| result.state_verified),
+    ))?;
+    value["apply_result"] = serde_json::to_value(snapshot.apply_result)?;
     Ok(value)
 }

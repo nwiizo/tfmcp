@@ -83,6 +83,8 @@ fn add_tools(enabled: &mut HashSet<String>, tools: &[&str]) {
 const TOOLSET_TERRAFORM: &[&str] = &[
     "init_terraform",
     "get_terraform_plan",
+    "list_terraform_plans",
+    "discard_terraform_plan",
     "analyze_plan",
     "review_terraform_plan",
     "summarize_plan_for_pr",
@@ -192,6 +194,8 @@ const TOOLSET_OPERATIONS: &[&str] = &[
 
 const TOOLSET_DEFAULT: &[&str] = &[
     "get_terraform_plan",
+    "list_terraform_plans",
+    "discard_terraform_plan",
     "search_providers",
     "get_provider_details",
     "get_provider_capabilities",

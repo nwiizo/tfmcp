@@ -289,7 +289,10 @@ impl TfMcp {
     ) -> anyhow::Result<crate::terraform::saved_plan::PlanSnapshot> {
         if let Some(plan_id) = plan_id {
             anyhow::ensure!(
-                options.var_files.is_empty() && options.replace.is_empty() && !options.refresh_only,
+                options.var_files.is_empty()
+                    && options.replace.is_empty()
+                    && !options.refresh_only
+                    && !options.destroy,
                 "A saved plan_id cannot be combined with new planning options"
             );
             self.terraform_service.read_saved_plan(plan_id).await
@@ -306,6 +309,14 @@ impl TfMcp {
         self.terraform_service
             .apply_saved_plan(plan_id, auto_approve)
             .await
+    }
+
+    pub async fn list_saved_plans(&self) -> Vec<crate::terraform::saved_plan::PlanSummary> {
+        self.terraform_service.list_saved_plans().await
+    }
+
+    pub async fn discard_saved_plan(&self, plan_id: &str) -> anyhow::Result<()> {
+        self.terraform_service.discard_saved_plan(plan_id).await
     }
 
     pub async fn apply_terraform(&self, auto_approve: bool) -> anyhow::Result<String> {
@@ -334,20 +345,19 @@ impl TfMcp {
         self.terraform_service.validate_detailed().await
     }
 
-    pub async fn destroy_terraform(&self, auto_approve: bool) -> anyhow::Result<String> {
-        // Check if delete functionality is enabled via environment variable
-        let delete_enabled = std::env::var("TFMCP_DELETE_ENABLED")
-            .map(|val| val.to_lowercase() == "true")
-            .unwrap_or(false);
-
-        if !delete_enabled {
-            return Err(anyhow::anyhow!(
-                "Delete functionality is disabled. Set TFMCP_DELETE_ENABLED=true to enable it."
-            ));
-        }
-
-        logging::info("Executing Terraform destroy operation");
-        self.terraform_service.destroy(auto_approve).await
+    pub async fn destroy_terraform(
+        &self,
+        plan_id: &str,
+        auto_approve: bool,
+    ) -> anyhow::Result<crate::terraform::saved_plan::ApplyResult> {
+        let snapshot = self.terraform_service.read_saved_plan(plan_id).await?;
+        anyhow::ensure!(
+            snapshot.destroy,
+            "destroy_terraform requires a saved destroy plan; create one with get_terraform_plan and destroy=true, then review it"
+        );
+        self.terraform_service
+            .apply_saved_plan(plan_id, auto_approve)
+            .await
     }
 
     // プロジェクトディレクトリを変更するメソッド

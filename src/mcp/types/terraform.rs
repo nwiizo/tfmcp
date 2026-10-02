@@ -8,12 +8,10 @@ pub struct DirectoryInput {
     pub directory: String,
 }
 
-/// Input for apply/destroy operations
+/// Identify a saved plan for removal without affecting infrastructure.
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct AutoApproveInput {
-    /// Whether to automatically approve the operation (default: false)
-    #[serde(default)]
-    pub auto_approve: bool,
+pub struct DiscardPlanInput {
+    pub plan_id: String,
 }
 
 /// Create a saved plan, or retrieve an existing plan without re-running Terraform.
@@ -30,6 +28,9 @@ pub struct PlanInput {
     /// Preview externally changed objects without changing state.
     #[serde(default)]
     pub refresh_only: bool,
+    /// Plan removal of all managed resources without executing it. Incompatible with refresh_only and replace.
+    #[serde(default)]
+    pub destroy: bool,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]

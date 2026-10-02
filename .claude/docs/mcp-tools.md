@@ -32,13 +32,30 @@ prerequisites only; required input values are resolved by the actual plan.
 `get_terraform_plan` saves a plan and returns an opaque `plan_id`. Use the same ID
 for `analyze_plan`, `review_terraform_plan`, `summarize_plan_for_pr`, and
 `apply_terraform`. The plan tool also retrieves an existing ID's result/status.
-Planning options include `var_files`, `replace`, and `refresh_only`.
+Planning options include `var_files`, `replace`, `refresh_only`, and `destroy`.
+Destroy plans cannot combine `refresh_only` or `replace`. Review the saved ID,
+then pass it to `destroy_terraform` or `apply_terraform`; both enforce
+`TFMCP_DELETE_ENABLED=true` in addition to the apply permissions.
 
 Apply requires the ID, `auto_approve=true`, and both existing local write gates.
 It does not replan, refuses changed targets and previously attempted plans, and
-returns structured failures with `isError=true`. Plans are process-local, with
-private temporary files and a 64-plan retention limit. There is no live progress
-or restart recovery; an interrupted attempt may have `outcome_unknown` status.
+returns structured failures with `isError=true`. `failed` records a nonzero exit;
+`outcome_unknown` records an unconfirmed exit, including timeout or cancellation.
+Both require state inspection and a new reviewed plan rather than retrying the
+same ID. Results include `recovery` guidance and are retained in `apply_result`;
+cancellation before result capture leaves it null. State verification checks
+resource addresses, not attribute values or outputs.
+
+Plans are process-local, with private temporary files and a 64-plan retention
+limit. `list_terraform_plans` returns metadata in creation order;
+`discard_terraform_plan` deletes one plan and its files to free capacity. Neither
+tool changes infrastructure. Discard does not cancel or roll back operations.
+Both are available in the default and Terraform toolsets. There is no live
+progress or restart recovery.
+
+`terraform_output` redacts sensitive values for both all-output and named-output
+queries. State/backend access failures return tool errors instead of an empty
+successful output list.
 
 ## MCP resources
 

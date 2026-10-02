@@ -363,8 +363,10 @@ macro_rules! tfe_call_value {
 enum TfmcpToolCall {
     ListResources,
     Plan(PlanInput),
+    ListPlans,
+    DiscardPlan(String),
     Apply(ApplyPlanInput),
-    Destroy(bool),
+    Destroy(ApplyPlanInput),
     Init,
     Validate,
     ValidateDetailed,
@@ -403,6 +405,8 @@ impl TfmcpToolCall {
         match self {
             Self::ListResources => "list_terraform_resources",
             Self::Plan(_) => "get_terraform_plan",
+            Self::ListPlans => "list_terraform_plans",
+            Self::DiscardPlan(_) => "discard_terraform_plan",
             Self::Apply(_) => "apply_terraform",
             Self::Destroy(_) => "destroy_terraform",
             Self::Init => "init_terraform",
@@ -437,6 +441,8 @@ impl TfmcpToolCall {
         match self {
             Self::ListResources => "Failed to list resources",
             Self::Plan(_) => "Failed to get plan",
+            Self::ListPlans => "Failed to list plans",
+            Self::DiscardPlan(_) => "Failed to discard plan",
             Self::Apply(_) => "Failed to apply",
             Self::Destroy(_) => "Failed to destroy",
             Self::Init => "Failed to init",
@@ -785,6 +791,9 @@ impl TfMcpServer {
             TfmcpToolCall::Plan(input) => {
                 local::plan_value(&tfmcp, input, local::PlanView::Output).await
             }
+            TfmcpToolCall::ListPlans => Ok(serde_json::json!({"plans": tfmcp.list_saved_plans().await})),
+            TfmcpToolCall::DiscardPlan(plan_id) => tfmcp.discard_saved_plan(&plan_id).await
+                .map(|()| serde_json::json!({"plan_id": plan_id, "discarded": true})),
             TfmcpToolCall::Apply(input) => {
                 if let Some(plan_id) = input.plan_id {
                     tfmcp
@@ -798,10 +807,11 @@ impl TfMcpServer {
                         .map(|output| serde_json::json!({"output": output}))
                 }
             }
-            TfmcpToolCall::Destroy(auto_approve) => tfmcp
-                .destroy_terraform(auto_approve)
-                .await
-                .map(|output| serde_json::json!({ "output": output })),
+            TfmcpToolCall::Destroy(input) => match input.plan_id {
+                Some(plan_id) => tfmcp.destroy_terraform(&plan_id, input.auto_approve).await
+                    .and_then(|result| Ok(serde_json::to_value(result)?)),
+                None => Err(anyhow::anyhow!("A saved destroy plan_id is required. Create it with get_terraform_plan and destroy=true, review it, then pass the ID to destroy_terraform")),
+            },
             TfmcpToolCall::Init => tfmcp
                 .init_terraform()
                 .await
@@ -1203,7 +1213,7 @@ impl TfMcpServer {
     }
 
     #[tool(
-        description = "Create a saved Terraform plan and return its plan_id, target, and redacted analysis. Pass plan_id to retrieve it without replanning; reuse that ID for review, PR summary, and apply. Plans expire when the server restarts.",
+        description = "Create a saved Terraform plan and return its plan_id, target, and redacted analysis. Set destroy=true to preview removal without executing it. Pass plan_id to retrieve status, apply_result, and recovery guidance without replanning; reuse that ID for review, PR summary, and apply. Plans expire when the server restarts.",
         annotations(title = "Get Terraform Plan", read_only_hint = true)
     )]
     async fn get_terraform_plan(
@@ -1214,7 +1224,31 @@ impl TfMcpServer {
     }
 
     #[tool(
-        description = "Apply a reviewed saved plan_id without replanning. Requires auto_approve=true, TFMCP_ALLOW_DANGEROUS_OPS=true, and TFMCP_ALLOW_AUTO_APPROVE=true. Refuses changed targets and previously attempted plans. Makes actual infrastructure changes.",
+        description = "List saved plans in creation order with IDs, targets, statuses, and destroy flags. Does not execute Terraform or include resource values. Plans expire on server restart.",
+        annotations(title = "List Terraform Plans", read_only_hint = true)
+    )]
+    async fn list_terraform_plans(&self) -> Result<CallToolResult, McpError> {
+        self.run_tfmcp_call(TfmcpToolCall::ListPlans).await
+    }
+
+    #[tool(
+        description = "Remove a saved plan and its temporary files to free retention capacity. The ID can no longer be reviewed or applied. Does not cancel an operation or change infrastructure; inspect any failed or unknown outcome before discarding its record.",
+        annotations(
+            title = "Discard Terraform Plan",
+            destructive_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn discard_terraform_plan(
+        &self,
+        params: Parameters<DiscardPlanInput>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run_tfmcp_call(TfmcpToolCall::DiscardPlan(params.0.plan_id))
+            .await
+    }
+
+    #[tool(
+        description = "Apply a reviewed saved plan_id without replanning. Requires auto_approve=true, TFMCP_ALLOW_DANGEROUS_OPS=true, and TFMCP_ALLOW_AUTO_APPROVE=true. Destroy plans additionally require TFMCP_DELETE_ENABLED=true. Refuses changed targets and previously attempted plans. Check status, state_verified, and recovery in the result. Makes actual infrastructure changes.",
         annotations(title = "Apply Terraform", destructive_hint = true)
     )]
     async fn apply_terraform(
@@ -1225,15 +1259,14 @@ impl TfMcpServer {
     }
 
     #[tool(
-        description = "Destroy all Terraform resources (requires TFMCP_ALLOW_DANGEROUS_OPS=true)",
+        description = "Apply a reviewed saved destroy plan_id without replanning. First call get_terraform_plan with destroy=true and review the returned ID. Requires auto_approve=true, TFMCP_ALLOW_DANGEROUS_OPS=true, TFMCP_ALLOW_AUTO_APPROVE=true, and TFMCP_DELETE_ENABLED=true. Makes actual infrastructure changes.",
         annotations(title = "Destroy Terraform", destructive_hint = true)
     )]
     async fn destroy_terraform(
         &self,
-        params: Parameters<AutoApproveInput>,
+        params: Parameters<ApplyPlanInput>,
     ) -> Result<CallToolResult, McpError> {
-        self.run_tfmcp_call(TfmcpToolCall::Destroy(params.0.auto_approve))
-            .await
+        self.run_tfmcp_call(TfmcpToolCall::Destroy(params.0)).await
     }
 
     #[tool(

@@ -40,7 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create the runtime image
 FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
-ARG TFMCP_VERSION="0.2.3"
+ARG TFMCP_VERSION="0.2.4"
 ARG TFMCP_REVISION="unknown"
 
 LABEL io.modelcontextprotocol.server.name="io.github.nwiizo/tfmcp" \

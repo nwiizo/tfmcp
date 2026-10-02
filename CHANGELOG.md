@@ -4,6 +4,39 @@ All notable changes to tfmcp are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-02
+
+### Added
+
+- Saved destroy plans through `get_terraform_plan` with `destroy=true`. Review
+  and apply the same ID, with deletion permissions enforced by both apply and
+  destroy endpoints.
+- `list_terraform_plans` and `discard_terraform_plan` to inspect saved-plan
+  metadata and reclaim the 64-plan capacity without changing infrastructure.
+- Retained apply results and recovery guidance for partial failures, timeouts,
+  and unknown outcomes. Attempted plans remain non-retryable. Results last for
+  the server process lifetime; they do not survive a restart.
+- Local development requirements based on Terraform documentation and the
+  Terraform in Depth / Terraform at Scale material, ranked by developer jobs.
+
+### Fixed
+
+- Redact sensitive Terraform outputs in both full and named queries. Named
+  queries now preserve sensitivity metadata; unreadable state no longer looks
+  like a successful empty output result.
+- Update rustls to 0.23.45 for RUSTSEC-2026-0285 and adapt MCP configuration
+  types to RMCP 3.5.0.
+
+### Changed
+
+- `destroy_terraform` now requires a saved destroy `plan_id` and explicit
+  `auto_approve=true`, plus dangerous-operation, auto-approve, and deletion
+  permissions. It no longer generates and executes an unreviewed destroy plan.
+- Merge dependency, GitHub Actions, Debian image digest, and Rust Docker image
+  updates. The Rust 1.88 minimum supported version is unchanged.
+- Exclude shared agent-directory symlinks from the Cargo package, matching the
+  existing exclusion of their documentation and skill targets.
+
 ## [0.2.3] - 2026-09-08
 
 ### Added
@@ -160,6 +193,7 @@ The compatible surface includes `get_plan_json_output`, `get_apply_logs`,
 beyond API mirroring: local Terraform CLI workflows, entrypoint detection,
 module health analysis, state safety checks, and local dangerous-operation gates.
 
+[0.2.4]: https://github.com/nwiizo/tfmcp/releases/tag/v0.2.4
 [0.2.3]: https://github.com/nwiizo/tfmcp/releases/tag/v0.2.3
 [0.2.2]: https://github.com/nwiizo/tfmcp/releases/tag/v0.2.2
 [0.2.1]: https://github.com/nwiizo/tfmcp/releases/tag/v0.2.1

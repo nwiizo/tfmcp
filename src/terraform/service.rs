@@ -324,65 +324,6 @@ impl TerraformService {
         Ok(tf_files)
     }
 
-    pub async fn destroy(&self, auto_approve: bool) -> anyhow::Result<String> {
-        // Security checks
-        if !self.security_manager.is_command_allowed("destroy") {
-            return Err(anyhow::anyhow!(
-                "Destroy operation blocked by security policy. Set TFMCP_ALLOW_DANGEROUS_OPS=true to enable."
-            ));
-        }
-
-        if auto_approve && !self.security_manager.is_auto_approve_allowed("destroy") {
-            return Err(anyhow::anyhow!(
-                "Auto-approve for destroy operation blocked by security policy. Set TFMCP_ALLOW_AUTO_APPROVE=true to enable."
-            ));
-        }
-
-        // Validate directory security
-        self.security_manager
-            .validate_directory(&self.project_directory)?;
-
-        let mut cmd = Command::new(&self.terraform_path);
-        cmd.arg("destroy");
-
-        if auto_approve {
-            cmd.arg("-auto-approve");
-        }
-
-        let command_args = vec!["terraform".to_string(), "destroy".to_string()];
-        let output = cmd.current_dir(&self.project_directory).output()?;
-        let success = output.status.success();
-
-        // Log audit entry
-        let error_msg = if !success {
-            Some(String::from_utf8_lossy(&output.stderr).to_string())
-        } else {
-            None
-        };
-
-        let audit_entry = self.security_manager.create_audit_entry(
-            "destroy",
-            &self.project_directory.to_string_lossy(),
-            &command_args,
-            success,
-            error_msg.clone(),
-            None, // Resource count not applicable for destroy
-        );
-
-        if let Err(e) = self.security_manager.log_audit_entry(audit_entry) {
-            eprintln!("[WARN] Failed to log audit entry: {e}");
-        }
-
-        if success {
-            Ok(String::from_utf8_lossy(&output.stdout).to_string())
-        } else {
-            Err(anyhow::anyhow!(
-                "Terraform destroy failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ))
-        }
-    }
-
     pub async fn analyze_configurations(&self) -> anyhow::Result<TerraformAnalysis> {
         eprintln!(
             "[DEBUG] Analyzing Terraform configurations in {}",

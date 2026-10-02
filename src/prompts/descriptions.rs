@@ -226,11 +226,13 @@ fn description_spec(kind: ToolDescriptionKind) -> DescriptionSpec {
             }],
         },
         ToolDescriptionKind::TerraformDestroy => DescriptionSpec {
-            summary: "Destroy all resources defined in the Terraform configuration",
-            usage_guide: "This tool destroys all infrastructure resources managed by Terraform in the current \
-                configuration. This is a destructive operation that cannot be undone. Use with extreme caution.",
+            summary: "Apply a reviewed saved destroy plan",
+            usage_guide: "Create a plan with get_terraform_plan and destroy=true, review its plan_id, then \
+                pass that ID here with auto_approve=true. Executes the saved plan without replanning.",
             constraints: vec![
                 "TFMCP_ALLOW_DANGEROUS_OPS must be set to true",
+                "TFMCP_ALLOW_AUTO_APPROVE and TFMCP_DELETE_ENABLED must be set to true",
+                "A reviewed saved destroy plan_id and auto_approve=true are required",
                 "Terraform must be initialized",
                 "State file must exist with managed resources",
             ],
@@ -252,10 +254,13 @@ fn description_spec(kind: ToolDescriptionKind) -> DescriptionSpec {
                 "Consider backing up important data before destruction",
             ],
             examples: vec![ToolExample {
-                title: "Destroy with Confirmation".to_string(),
-                description: "Destroy resources with manual confirmation".to_string(),
-                input: json!({"auto_approve": false}),
-                expected_output: "Terraform destroy output showing resources removed".to_string(),
+                title: "Apply Reviewed Destroy Plan".to_string(),
+                description: "Approve the saved deletion plan in the client before calling"
+                    .to_string(),
+                input: json!({"plan_id": "<reviewed destroy plan ID>", "auto_approve": true}),
+                expected_output:
+                    "Structured apply result with status, state_verified, and recovery guidance"
+                        .to_string(),
             }],
         },
         ToolDescriptionKind::TerraformAnalyze => DescriptionSpec {

@@ -607,6 +607,7 @@ pub const SERVER_INSTRUCTIONS: &str = r#"tfmcp is a Terraform MCP server for loc
 
 ### Terraform Operations (local CLI)
 Start with `prepare_terraform_change` to inspect execution prerequisites. Use `init_terraform` when required, then `get_terraform_plan` to save a plan. Reuse the returned `plan_id` for analysis, review, PR summaries, and apply. Use `terraform_fmt` to format code.
+For teardown, create a plan with `destroy:true`, review it, then call `destroy_terraform` with the saved ID and explicit approval. Use `list_terraform_plans` to find plans and `discard_terraform_plan` to free capacity without affecting infrastructure.
 
 ### Configuration Analysis
 Use `analyze_terraform` for a project overview (resources, variables, outputs, providers). Use `analyze_module_health` for cohesion/coupling metrics and `get_resource_dependency_graph` for dependency visualization. `suggest_module_refactoring` provides improvement suggestions.
@@ -630,9 +631,11 @@ Use `get_security_status` to check security policy, secret detection results, an
 ## Safety
 - `apply_terraform` and `destroy_terraform` require `TFMCP_ALLOW_DANGEROUS_OPS=true`
 - Saved-plan apply also requires `TFMCP_ALLOW_AUTO_APPROVE=true`, `auto_approve:true`, and a `plan_id`. Terraform never prompts for approval in this workflow.
+- Destroy plans require `TFMCP_DELETE_ENABLED=true` through either apply or destroy. `destroy_terraform` accepts only a saved destroy plan; it never replans.
 - A review decision is advisory; it does not authorize execution.
 - Plans are bound to the selected target, cannot be retried after an attempt, and expire when the server restarts. Retrieve their final status with `get_terraform_plan` and `plan_id`.
-- After a failed or interrupted write, inspect state and generate a new plan before continuing.
+- Inspect `status`, `state_verified`, and `recovery.next_steps`. `failed` means a nonzero exit; `outcome_unknown` means no definitive exit result. Either may have changed infrastructure. Confirm operations have stopped, inspect the recorded target and actual resources, then generate and review a new plan. Never retry the same attempted ID or automatically force-unlock.
+- Retrieve retained `apply_result` by plan ID. Cancellation before result capture leaves it null. Discarding a plan neither cancels nor rolls back an operation; inspect unknown outcomes before discarding their records.
 - Use `terraform_import` with `execute: false` to preview before importing
 "#;
 

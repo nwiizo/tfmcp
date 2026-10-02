@@ -3,7 +3,7 @@ use super::TerraformService;
 use crate::terraform::{
     plan_analyzer::{PlanAnalysis, RiskAssessment, RiskLevel},
     preflight::{self, ExecutionPreflight},
-    saved_plan::{ApplyResult, PlanOptions, PlanSnapshot},
+    saved_plan::{ApplyResult, PlanOptions, PlanSnapshot, PlanSummary},
 };
 
 impl TerraformService {
@@ -60,6 +60,14 @@ impl TerraformService {
         self.saved_plans.lock().await.read(plan_id)
     }
 
+    pub async fn list_saved_plans(&self) -> Vec<PlanSummary> {
+        self.saved_plans.lock().await.list()
+    }
+
+    pub async fn discard_saved_plan(&self, plan_id: &str) -> anyhow::Result<()> {
+        self.saved_plans.lock().await.discard(plan_id)
+    }
+
     pub async fn apply_saved_plan(
         &self,
         plan_id: &str,
@@ -68,6 +76,18 @@ impl TerraformService {
         self.check_apply_permissions(auto_approve)?;
         let mut plans = self.saved_plans.lock().await;
         let snapshot = plans.read(plan_id)?;
+        if snapshot.destroy {
+            anyhow::ensure!(
+                std::env::var("TFMCP_DELETE_ENABLED")
+                    .is_ok_and(|value| value.eq_ignore_ascii_case("true")),
+                "Destroy plans require TFMCP_DELETE_ENABLED=true in addition to the apply permissions"
+            );
+            anyhow::ensure!(
+                self.security_manager.is_command_allowed("destroy")
+                    && self.security_manager.is_auto_approve_allowed("destroy"),
+                "Destroy operation blocked by security policy"
+            );
+        }
         self.security_manager
             .check_resource_limit(snapshot.analysis.resource_changes.len())?;
         let result = plans
@@ -80,7 +100,7 @@ impl TerraformService {
             _ => None,
         };
         let audit_entry = self.security_manager.create_audit_entry(
-            "apply",
+            if snapshot.destroy { "destroy" } else { "apply" },
             &self.project_directory.to_string_lossy(),
             &[
                 "terraform".to_string(),

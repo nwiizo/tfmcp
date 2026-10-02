@@ -28,98 +28,42 @@ pub fn get_outputs(
     project_dir: &Path,
     name: Option<&str>,
 ) -> anyhow::Result<OutputResult> {
-    let mut cmd = Command::new(terraform_path);
-    cmd.arg("output").arg("-json");
-
-    // If a specific output is requested
-    if let Some(output_name) = name {
-        cmd.arg(output_name);
+    // Named output queries omit sensitivity metadata. Always retrieve the map,
+    // then select and redact locally before anything crosses the MCP boundary.
+    let output = Command::new(terraform_path)
+        .args(["output", "-json"])
+        .current_dir(project_dir)
+        .output()?;
+    anyhow::ensure!(
+        output.status.success(),
+        "Terraform output failed (exit code {:?}). Check the selected workspace, backend access, and state locally; diagnostics are withheld because they may contain sensitive values",
+        output.status.code()
+    );
+    let map: std::collections::BTreeMap<String, TerraformOutput> =
+        serde_json::from_slice(&output.stdout)
+            .map_err(|_| anyhow::anyhow!("Terraform returned an invalid output map"))?;
+    if let Some(name) = name {
+        anyhow::ensure!(map.contains_key(name), "Requested output was not found");
     }
-
-    let output = cmd.current_dir(project_dir).output()?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    if !output.status.success() {
-        // Check for common errors
-        if stderr.contains("No outputs found") || stdout.trim().is_empty() {
-            return Ok(OutputResult {
-                success: true,
-                outputs: vec![],
-                message: "No outputs defined in this configuration".to_string(),
-            });
-        }
-
-        if stderr.contains("output") && stderr.contains("not found") {
-            return Err(anyhow::anyhow!(
-                "Output '{}' not found",
-                name.unwrap_or("unknown")
-            ));
-        }
-
-        return Err(anyhow::anyhow!("Failed to get outputs: {stderr}"));
-    }
-
-    // Parse JSON output
-    let outputs = if let Some(output_name) = name {
-        // Single output: the JSON is the value itself
-        if stdout.trim().is_empty() {
-            vec![]
-        } else {
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(value) => {
-                    vec![OutputValue {
-                        name: output_name.to_string(),
-                        value: value.clone(),
-                        value_type: get_value_type(&value),
-                        sensitive: false, // Can't determine from single output
-                        description: None,
-                    }]
-                }
-                Err(e) => return Err(anyhow::anyhow!("Failed to parse output JSON: {e}")),
-            }
-        }
-    } else {
-        // All outputs: JSON is a map of output names to output objects
-        if stdout.trim().is_empty() || stdout.trim() == "{}" {
-            vec![]
-        } else {
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(serde_json::Value::Object(map)) => {
-                    let mut outputs = Vec::new();
-                    for (name, output_obj) in map {
-                        let value = output_obj
-                            .get("value")
-                            .cloned()
-                            .unwrap_or(serde_json::Value::Null);
-                        let sensitive = output_obj
-                            .get("sensitive")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false);
-                        let value_type = output_obj
-                            .get("type")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| get_value_type(&value));
-
-                        outputs.push(OutputValue {
-                            name,
-                            value,
-                            value_type,
-                            sensitive,
-                            description: None,
-                        });
-                    }
-                    outputs
-                }
-                Ok(_) => {
-                    return Err(anyhow::anyhow!("Unexpected output format"));
-                }
-                Err(e) => return Err(anyhow::anyhow!("Failed to parse outputs JSON: {e}")),
-            }
-        }
-    };
+    let outputs: Vec<_> = map
+        .into_iter()
+        .filter(|(output_name, _)| name.is_none_or(|name| output_name == name))
+        .map(|(name, output)| OutputValue {
+            name,
+            value_type: output
+                .value_type
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| get_value_type(&output.value)),
+            value: if output.sensitive {
+                serde_json::json!("[sensitive]")
+            } else {
+                output.value
+            },
+            sensitive: output.sensitive,
+            description: None,
+        })
+        .collect();
 
     let message = if outputs.is_empty() {
         "No outputs found".to_string()
@@ -132,6 +76,14 @@ pub fn get_outputs(
         outputs,
         message,
     })
+}
+
+#[derive(Deserialize)]
+struct TerraformOutput {
+    sensitive: bool,
+    value: serde_json::Value,
+    #[serde(rename = "type")]
+    value_type: serde_json::Value,
 }
 
 /// Determine the type of a JSON value

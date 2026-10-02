@@ -358,6 +358,8 @@ async fn test_rmcp_server_tool_count() -> Result<()> {
         let expected_tools = vec![
             "list_terraform_resources",
             "get_terraform_plan",
+            "list_terraform_plans",
+            "discard_terraform_plan",
             "apply_terraform",
             "destroy_terraform",
             "init_terraform",
@@ -429,8 +431,8 @@ async fn test_rmcp_server_tool_count() -> Result<()> {
         ];
         assert_eq!(
             expected_tools.len(),
-            70,
-            "Expected 70 tools to be registered"
+            72,
+            "Expected 72 tools in the registration checklist"
         );
         return Ok(());
     }
@@ -441,7 +443,7 @@ async fn test_rmcp_server_tool_count() -> Result<()> {
     if let Ok(tfmcp) = TfMcp::new(None, Some(temp_dir_str)) {
         let _server = TfMcpServer::new(tfmcp, tfmcp::mcp::server::ToolFilter::all());
         // Server created successfully - tools are registered via #[tool] macros
-        println!("RMCP server with 70 tools created successfully");
+        println!("RMCP server created successfully");
     }
 
     Ok(())
@@ -606,12 +608,12 @@ fn test_tool_input_schema_generation() {
         "directory should be required"
     );
 
-    // Test AutoApproveInput schema
-    let approve_schema = schema_for!(AutoApproveInput);
+    // Test saved-plan approval schema
+    let approve_schema = schema_for!(ApplyPlanInput);
     let approve_json = serde_json::to_value(&approve_schema).unwrap();
     assert!(
         approve_json["properties"]["auto_approve"].is_object(),
-        "AutoApproveInput should have auto_approve property"
+        "ApplyPlanInput should have auto_approve property"
     );
 
     // Test SearchQueryInput schema

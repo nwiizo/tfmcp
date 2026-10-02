@@ -108,6 +108,8 @@ fn default_toolset_exposes_release_baseline_without_write_operations() {
     let filter = ToolFilter::from_cli(&toolsets, None);
 
     for tool in [
+        "list_terraform_plans",
+        "discard_terraform_plan",
         "search_providers",
         "get_provider_details",
         "get_provider_capabilities",

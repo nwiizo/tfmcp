@@ -11,6 +11,7 @@ pub struct PlanOptions {
     pub var_files: Vec<String>,
     pub replace: Vec<String>,
     pub refresh_only: bool,
+    pub destroy: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -30,7 +31,46 @@ pub struct PlanSnapshot {
     pub status: PlanStatus,
     pub has_changes: bool,
     pub refresh_only: bool,
+    pub destroy: bool,
     pub analysis: plan_analyzer::PlanAnalysis,
+    pub apply_result: Option<ApplyResult>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlanSummary {
+    pub plan_id: String,
+    pub target: preflight::ExecutionTarget,
+    pub created_at: DateTime<Utc>,
+    pub status: PlanStatus,
+    pub destroy: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RecoveryGuidance {
+    pub state_may_have_changed: bool,
+    pub next_steps: Vec<&'static str>,
+}
+
+impl RecoveryGuidance {
+    pub fn for_status(status: PlanStatus, state_verified: bool) -> Self {
+        let next_steps = match status {
+            PlanStatus::Ready => Vec::new(),
+            PlanStatus::Applied if state_verified => Vec::new(),
+            PlanStatus::Applied => vec![
+                "Apply completed, but state verification is incomplete. Inspect state and outputs for the recorded target before making another change.",
+            ],
+            PlanStatus::Failed | PlanStatus::OutcomeUnknown => vec![
+                "Do not retry this plan: some changes may already have been applied.",
+                "Confirm Terraform and any provider or provisioner operations have stopped; do not force-unlock an active operation.",
+                "Select the recorded project, workspace, and backend, then inspect state and the actual resources.",
+                "Resolve the reported problem, generate a new plan, and review it before applying.",
+            ],
+        };
+        Self {
+            state_may_have_changed: status != PlanStatus::Ready,
+            next_steps,
+        }
+    }
 }
 
 struct SavedPlan {
@@ -45,16 +85,18 @@ pub(super) struct PlanStore {
     plans: HashMap<String, SavedPlan>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ApplyResult {
     pub plan_id: String,
     pub target: preflight::ExecutionTarget,
     pub success: bool,
+    pub status: PlanStatus,
     pub exit_code: Option<i32>,
     pub diagnostics: Vec<String>,
     pub state_verified: bool,
     pub managed_resources: Option<usize>,
     pub output: String,
+    pub recovery: RecoveryGuidance,
 }
 
 impl PlanStore {
@@ -68,11 +110,15 @@ impl PlanStore {
             !options.refresh_only || options.replace.is_empty(),
             "refresh_only cannot be combined with replacement requests"
         );
+        anyhow::ensure!(
+            !options.destroy || (!options.refresh_only && options.replace.is_empty()),
+            "destroy cannot be combined with refresh_only or replacement requests"
+        );
         // nwiizo-coding-style: plans live for one server process, with a bounded cache;
         // add durable retention when restart-resumable local execution is required.
         anyhow::ensure!(
             self.plans.len() < 64,
-            "Saved plan limit reached (64); restart the server after finishing pending operations"
+            "Saved plan limit reached (64); use list_terraform_plans and discard_terraform_plan to remove unneeded plans"
         );
         let target = preflight::target_snapshot(executable, directory).await?;
         let temporary = tempfile::Builder::new().prefix("tfmcp-plan-").tempdir()?;
@@ -92,6 +138,9 @@ impl PlanStore {
         ];
         if options.refresh_only {
             args.push("-refresh-only".to_string());
+        }
+        if options.destroy {
+            args.push("-destroy".to_string());
         }
         for file in &options.var_files {
             let path = directory
@@ -144,7 +193,9 @@ impl PlanStore {
             status: PlanStatus::Ready,
             has_changes: output.status.code() == Some(2),
             refresh_only: options.refresh_only,
+            destroy: options.destroy,
             analysis,
+            apply_result: None,
         };
         let hash = preflight::fingerprint(&std::fs::read(&plan_path)?);
         self.plans.insert(
@@ -166,6 +217,40 @@ impl PlanStore {
             .context("Unknown or expired plan_id; generate a new plan")?
             .snapshot
             .clone())
+    }
+
+    pub fn list(&self) -> Vec<PlanSummary> {
+        let mut plans: Vec<_> = self
+            .plans
+            .values()
+            .map(|plan| {
+                let snapshot = &plan.snapshot;
+                PlanSummary {
+                    plan_id: snapshot.plan_id.clone(),
+                    target: snapshot.target.clone(),
+                    created_at: snapshot.created_at,
+                    status: snapshot.status,
+                    destroy: snapshot.destroy,
+                }
+            })
+            .collect();
+        plans.sort_by(|a, b| {
+            a.created_at
+                .cmp(&b.created_at)
+                .then(a.plan_id.cmp(&b.plan_id))
+        });
+        plans
+    }
+
+    pub fn discard(&mut self, plan_id: &str) -> Result<()> {
+        let plan = self
+            .plans
+            .get(plan_id)
+            .context("Unknown or expired plan_id; use list_terraform_plans")?;
+        std::fs::remove_dir_all(plan.directory.path())
+            .context("Could not remove saved plan files")?;
+        self.plans.remove(plan_id);
+        Ok(())
     }
 
     pub async fn apply(
@@ -195,7 +280,7 @@ impl PlanStore {
         // If the request is cancelled, the write may have partially completed.
         // Keep it non-retryable even when no final process result is observed.
         plan.snapshot.status = PlanStatus::OutcomeUnknown;
-        let output = match execution::run(
+        let execution = execution::run(
             executable,
             directory,
             &[
@@ -206,22 +291,22 @@ impl PlanStore {
                 &path.to_string_lossy(),
             ],
         )
-        .await
-        {
-            Ok(output) => output,
-            Err(error) => {
-                plan.snapshot.status = PlanStatus::Failed;
-                return Err(error);
-            }
+        .await;
+        let (success, exit_code, mut diagnostics) = match execution {
+            Ok(output) => (
+                output.status.success(),
+                output.status.code(),
+                execution::diagnostics(&output),
+            ),
+            Err(error) => (false, None, vec![error.to_string()]),
         };
-        plan.snapshot.status = if output.status.success() {
-            PlanStatus::Applied
-        } else {
-            PlanStatus::Failed
+        plan.snapshot.status = match (success, exit_code) {
+            (true, _) => PlanStatus::Applied,
+            (false, Some(_)) => PlanStatus::Failed,
+            (false, None) => PlanStatus::OutcomeUnknown,
         };
-        let mut diagnostics = execution::diagnostics(&output);
         let mut resources = None;
-        if output.status.success() {
+        if success {
             match execution::run(executable, directory, &["state", "list"]).await {
                 Ok(state) if state.status.success() => {
                     let stdout = String::from_utf8_lossy(&state.stdout);
@@ -242,20 +327,29 @@ impl PlanStore {
                 _ => diagnostics.push("Apply succeeded, but state verification failed; inspect state before further operations".to_string()),
             }
         }
-        Ok(ApplyResult {
+        let result = ApplyResult {
             plan_id: plan_id.to_string(),
             target: plan.snapshot.target.clone(),
-            success: output.status.success(),
-            exit_code: output.status.code(),
+            success,
+            status: plan.snapshot.status,
+            exit_code,
             diagnostics,
             state_verified: resources.is_some(),
             managed_resources: resources,
-            output: if output.status.success() {
+            output: if success {
                 "Saved Terraform plan applied"
+            } else if plan.snapshot.status == PlanStatus::OutcomeUnknown {
+                "Apply outcome could not be confirmed; inspect state before creating a new plan"
             } else {
                 "Saved plan apply failed; inspect state before creating a new plan"
             }
             .to_string(),
-        })
+            recovery: RecoveryGuidance::for_status(plan.snapshot.status, resources.is_some()),
+        };
+        plan.snapshot.apply_result = Some(result.clone());
+        Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests;
