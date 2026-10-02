@@ -2,7 +2,7 @@
 use anyhow::{Context, Result};
 use rmcp::{
     ClientHandler, ServiceExt,
-    model::{CallToolRequestParams, CallToolResult, ClientInfo},
+    model::{CallToolRequestParams, CallToolResult, ClientConfig},
 };
 use serde_json::{Value, json};
 use std::process::Stdio;
@@ -12,8 +12,8 @@ use tokio::process::{Child, Command};
 struct Client;
 
 impl ClientHandler for Client {
-    fn get_info(&self) -> ClientInfo {
-        ClientInfo::default()
+    fn get_info(&self) -> ClientConfig {
+        ClientConfig::default()
     }
 }
 

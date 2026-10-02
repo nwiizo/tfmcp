@@ -45,7 +45,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # MCP SDK
-rmcp = { version = "3.1.2", features = [
+rmcp = { version = "3.5.0", features = [
   "server",
   "transport-io",
   "transport-streamable-http-server",
@@ -61,7 +61,7 @@ tower-http = { version = "0.7", features = ["cors"] }
 
 [dev-dependencies]
 tempfile = "3.27"
-rmcp = { version = "3.1.2", features = [
+rmcp = { version = "3.5.0", features = [
   "server",
   "client",
   "transport-io",
