@@ -35,6 +35,11 @@
 - Document public APIs with rustdoc comments
 - Prefer immutable variables when possible
 - Use typed request/response structures at MCP and TFE boundaries
+- Choose private or `pub(crate)` visibility unless external callers need `pub`;
+  avoid exposing fields that let callers bypass domain validation.
+- Use newtypes when distinct identifiers or values would otherwise be confused.
+  Serialization derives describe data exchange, not evidence that a type owns
+  domain behavior or needs an additional abstraction.
 - Keep configuration parsing, transport wiring, protocol dispatch, and domain
   operations in separate modules
 
@@ -60,6 +65,8 @@
 
 ## Refactoring
 
+- Follow [coupling signal integrity](grading-integrity.md) when interpreting or
+  comparing structural diagnostics.
 - Run `cargo coupling` before and after structural work; reduce High findings
   without hiding stable shared types behind artificial traits.
 - Run `similarity-rs` before extracting helpers. Extract duplicated policy or
