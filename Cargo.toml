@@ -29,7 +29,7 @@ anyhow = "1.0"
 thiserror = "2.0"
 futures = "0.3"
 tokio = { version = "1.50", features = ["full"] }
-dirs = "6.0"
+dirs = "7.0"
 tempfile = "3.27"
 regex = "1.12"
 ring = "0.17"
