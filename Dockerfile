@@ -19,7 +19,7 @@ COPY example/ example/
 # Rebuild with the actual source code
 RUN cargo build --release --locked
 
-FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS terraform
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS terraform
 
 ARG TARGETARCH
 ARG TERRAFORM_VERSION="1.15.8"
@@ -38,7 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create the runtime image
-FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 
 ARG TFMCP_VERSION="0.2.4"
 ARG TFMCP_REVISION="unknown"
