@@ -42,7 +42,7 @@ jobs:
           toolchain: 1.88.0
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Check minimum supported Rust
         run: cargo check --locked --all-targets --all-features
@@ -63,7 +63,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           # v0 included cargo package staging directories and produced noisy
           # missing-path annotations while restoring the cache.
@@ -106,7 +106,7 @@ jobs:
           toolchain: stable
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Compile
         run: cargo check --locked --all-targets --all-features
